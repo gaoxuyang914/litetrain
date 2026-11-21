@@ -137,6 +137,13 @@ export interface NodeInfo {
   allocated_cpus: number
   free_cpus: number
   running_tasks: number
+  active_tasks: Array<{
+    id: string
+    name: string
+    progress: number
+    cpu_cores: number
+    status: string
+  }>
   cpu_utilization_percent: number
   host_percent: number
   last_seen: string

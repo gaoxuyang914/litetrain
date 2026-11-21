@@ -382,6 +382,35 @@ onBeforeUnmount(() => {
           </template>
         </el-table>
 
+        <div class="task-mobile-list">
+          <article v-for="row in tasks" :key="row.id" class="task-mobile-card">
+            <div class="task-mobile-head">
+              <span class="priority-rail" :class="priorityTone(row.priority)"></span>
+              <div class="task-mobile-name">
+                <strong>{{ row.name }}</strong>
+                <span class="mono">{{ row.id }}</span>
+              </div>
+              <StatusBadge :status="row.status" />
+            </div>
+            <div class="task-mobile-meta">
+              <span class="mono">{{ row.epochs }}ep · {{ row.imgsz }}px · b{{ row.batch_size }}</span>
+              <span class="cpu-chip">{{ row.cpu_cores }} CPU</span>
+              <span class="priority-chip" :class="priorityTone(row.priority)">P{{ row.priority }}</span>
+            </div>
+            <div class="task-mobile-foot">
+              <span class="mono">
+                {{ row.status === 'running' ? formatPercent(row.progress, 1) : row.status === 'pending' ? `#${row.queue_position ?? '—'} queued` : formatDuration(row.runtime_seconds) }}
+              </span>
+              <span>{{ timeAgo(row.submitted_at) }}</span>
+              <span class="task-mobile-actions">
+                <el-button text size="small" @click="openDetail(row)">详情</el-button>
+                <el-button text size="small" @click="openLogs(row)">日志</el-button>
+                <el-button v-if="canCancel(row)" text size="small" type="danger" :loading="cancellingId === row.id" @click="cancelTask(row)">取消</el-button>
+              </span>
+            </div>
+          </article>
+        </div>
+
         <div class="pagination-bar">
           <span class="pagination-note">
             第 {{ response?.page ?? 1 }} / {{ Math.max(1, response?.pages ?? 1) }} 页
@@ -897,6 +926,111 @@ onBeforeUnmount(() => {
 
   .table-meta {
     padding: 13px 15px;
+  }
+}
+</style>
+
+<style scoped>
+.task-mobile-list {
+  display: none;
+}
+
+.task-mobile-card {
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--panel);
+}
+
+.task-mobile-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-mobile-head .priority-rail {
+  height: 26px;
+}
+
+.task-mobile-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.task-mobile-name strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-mobile-name span {
+  color: var(--text-muted);
+  font-size: 7.5px;
+}
+
+.task-mobile-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.task-mobile-foot {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.task-mobile-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: auto;
+}
+
+@media (max-width: 1000px) {
+  .search-wrap {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .search-input {
+    width: auto;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .filter-panel {
+    padding: 10px;
+  }
+
+  .task-table {
+    display: none;
+  }
+
+  .task-mobile-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .pagination-bar {
+    padding-top: 0;
   }
 }
 </style>

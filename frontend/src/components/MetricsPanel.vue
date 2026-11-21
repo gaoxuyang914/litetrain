@@ -42,7 +42,7 @@ const summary = computed(() => [
     label: 'mAP50-95',
     value: valueOf('metrics/mAP50-95(B)'),
     display: formatMetric(valueOf('metrics/mAP50-95(B)')),
-    tone: 'violet',
+    tone: 'copper',
   },
   {
     label: 'Precision',
@@ -66,10 +66,10 @@ function formatMetric(value: number | null): string {
 const lossSeries = computed<ChartSeries[]>(() => {
   const metricSeries = props.metrics?.series ?? []
   const preferred = [
-    ['train/box_loss', '#0d9b6b', true],
-    ['train/cls_loss', '#6b5ce7', true],
-    ['train/dfl_loss', '#d88a08', false],
-    ['val/box_loss', '#4f8dd6', false],
+    ['train/box_loss', '#0b9767', true],
+    ['train/cls_loss', '#b8744b', true],
+    ['train/dfl_loss', '#d1a14b', false],
+    ['val/box_loss', '#4f8a76', false],
   ] as const
   const values: Array<ChartSeries | null> = preferred.map(([name, color, area]) => {
     const series = metricSeries.find((item) => item.name === name)
@@ -87,10 +87,10 @@ const lossSeries = computed<ChartSeries[]>(() => {
 const precisionSeries = computed<ChartSeries[]>(() => {
   const metricSeries = props.metrics?.series ?? []
   const preferred = [
-    ['metrics/mAP50(B)', 'mAP50', '#0d9b6b', true],
-    ['metrics/mAP50-95(B)', 'mAP50-95', '#6b5ce7', true],
-    ['metrics/precision(B)', 'precision', '#d88a08', false],
-    ['metrics/recall(B)', 'recall', '#4f8dd6', false],
+    ['metrics/mAP50(B)', 'mAP50', '#0b9767', true],
+    ['metrics/mAP50-95(B)', 'mAP50-95', '#b8744b', true],
+    ['metrics/precision(B)', 'precision', '#d1a14b', false],
+    ['metrics/recall(B)', 'recall', '#4f8a76', false],
   ] as const
   const values: Array<ChartSeries | null> = preferred.map(([key, label, color, area]) => {
     const series = metricSeries.find((item) => item.name === key)
@@ -266,7 +266,8 @@ const hasMetricData = computed(() => (props.metrics?.series.length ?? 0) > 0)
   color: var(--accent);
 }
 
-.summary-card.violet strong {
+.summary-card.violet strong,
+.summary-card.copper strong {
   color: var(--violet);
 }
 
@@ -275,7 +276,7 @@ const hasMetricData = computed(() => (props.metrics?.series.length ?? 0) > 0)
 }
 
 .summary-card.blue strong {
-  color: #4f8dd6;
+  color: var(--blue);
 }
 
 .chart-card {

@@ -71,6 +71,13 @@ const statusIcon = computed(() => {
   return Clock
 })
 
+const scheduledNode = computed(() => {
+  const scheduled = events.value.find(
+    (event) => event.event_type === 'scheduled' && event.message.includes(' on '),
+  )
+  return scheduled?.message.match(/ on (.+?) \(/)?.[1] ?? (isPending.value ? 'queued' : '—')
+})
+
 const runtimeLabel = computed(() => formatDuration(task.value?.runtime_seconds))
 const heartbeatLabel = computed(() =>
   task.value?.last_heartbeat_at ? timeAgo(task.value.last_heartbeat_at) : '—',
@@ -101,10 +108,10 @@ const summaryStats = computed(() => {
       icon: Refresh,
     },
     {
-      label: '执行器',
-      value: task.value.executor ?? (isPending.value ? 'queued' : '—'),
+      label: '执行节点',
+      value: scheduledNode.value,
       unit: '',
-      hint: task.value.pid ? `pid ${task.value.pid}` : '调度中',
+      hint: task.value.executor ? `executor ${task.value.executor}` : '等待调度',
       icon: Connection,
     },
   ]
@@ -1373,6 +1380,178 @@ onBeforeUnmount(() => stopPolling())
 
   .config-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+</style>
+
+<style scoped>
+/* Direction A · job cockpit */
+.detail-page {
+  gap: 15px;
+}
+
+.job-hero {
+  padding: 17px 20px 0;
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+  background:
+    radial-gradient(600px 240px at 100% 0%, var(--accent-soft), transparent 68%),
+    linear-gradient(145deg, var(--panel), color-mix(in srgb, var(--panel-soft) 48%, var(--panel)));
+}
+
+.job-hero.state-succeeded {
+  box-shadow:
+    0 1px 0 var(--panel-highlight) inset,
+    0 20px 52px -42px rgba(7, 48, 32, 0.36);
+}
+
+.hero-status-icon {
+  width: 43px;
+  height: 43px;
+  border-radius: 50%;
+  font-size: 20px;
+  box-shadow: 0 0 26px -15px currentColor;
+}
+
+.hero-status-icon.state-succeeded {
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.hero-eyebrow {
+  font-size: 9.5px;
+}
+
+.hero-eyebrow span:first-child {
+  color: var(--accent-strong);
+  font-weight: 650;
+}
+
+.hero-eyebrow .mono {
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.hero-hint {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: 10.5px;
+}
+
+.hero-progress-number strong {
+  font-family: var(--font-display);
+  font-size: 27px;
+  font-weight: 650;
+}
+
+.hero-progress {
+  height: 4px;
+  margin: 14px 0 13px;
+  background: color-mix(in srgb, var(--panel-soft) 64%, var(--border));
+  box-shadow: none;
+}
+
+.hero-progress > span.state-succeeded {
+  background: linear-gradient(90deg, var(--accent), var(--accent-bright));
+  box-shadow: 0 0 14px -4px var(--accent);
+}
+
+.hero-stats {
+  border-top-color: color-mix(in srgb, var(--border) 82%, transparent);
+}
+
+.hero-stat {
+  padding-top: 12px;
+  padding-bottom: 13px;
+}
+
+.hero-stat-icon {
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  background: color-mix(in srgb, var(--panel-soft) 74%, transparent);
+}
+
+.hero-stat-value strong {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.hero-stat-label {
+  color: var(--text-muted);
+  font-size: 7px;
+  letter-spacing: 0.07em;
+}
+
+.hero-stat-hint {
+  margin-top: 3px;
+  font-size: 8px;
+}
+
+.detail-main-grid {
+  gap: 15px;
+  grid-template-columns: minmax(0, 1.56fr) minmax(330px, 0.82fr);
+}
+
+.logs-panel .panel-head,
+.metrics-card .panel-head,
+.events-card .panel-head,
+.config-panel .panel-head {
+  padding: 15px 17px 13px;
+}
+
+.log-panel-body {
+  padding: 11px;
+}
+
+.metrics-body {
+  padding: 11px;
+}
+
+.events-body {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.event-marker.accent {
+  background: var(--copper);
+}
+
+.side-info-card {
+  border-radius: 19px;
+}
+
+@media (max-width: 1100px) {
+  .detail-main-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .detail-side {
+    position: static;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .detail-side {
+    display: flex !important;
+    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .metrics-card .panel-head h2,
+  .events-card .panel-head h2,
+  .side-info-card .panel-head h2 {
+    white-space: nowrap;
+  }
+
+  .hero-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero-stat:nth-child(odd) {
+    padding-left: 0;
+    border-left: none;
   }
 }
 </style>

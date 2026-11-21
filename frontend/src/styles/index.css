@@ -16,12 +16,14 @@
   --accent-line: rgba(11, 151, 103, 0.22);
   --lime: #c6f36a;
   --gold: #c7953d;
+  --copper: #b8744b;
+  --copper-soft: rgba(184, 116, 75, 0.1);
   --amber: #d88a08;
   --amber-soft: rgba(216, 138, 8, 0.11);
-  --violet: #6359e8;
-  --violet-soft: rgba(99, 89, 232, 0.1);
-  --blue: #337fca;
-  --blue-soft: rgba(51, 127, 202, 0.1);
+  --violet: #b8744b;
+  --violet-soft: rgba(184, 116, 75, 0.1);
+  --blue: #4f8a76;
+  --blue-soft: rgba(79, 138, 118, 0.1);
   --red: #d04f57;
   --red-soft: rgba(208, 79, 87, 0.1);
   --sidebar: #071510;
@@ -44,6 +46,9 @@
   --shadow-lg: 0 40px 100px -40px rgba(6, 30, 20, 0.42);
   --radius: 20px;
   --radius-sm: 12px;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --mono: 'Cascadia Code', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
   --font: 'Aptos', 'Segoe UI Variable Text', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
   --font-display: 'Bahnschrift', 'Aptos Display', 'Segoe UI Variable Display', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
@@ -71,12 +76,14 @@ html.dark {
   --accent-line: rgba(66, 220, 164, 0.25);
   --lime: #d8ff8f;
   --gold: #e5b75f;
+  --copper: #e1a17a;
+  --copper-soft: rgba(225, 161, 122, 0.13);
   --amber: #f2b84b;
   --amber-soft: rgba(242, 184, 75, 0.13);
-  --violet: #a79dff;
-  --violet-soft: rgba(167, 157, 255, 0.13);
-  --blue: #78b7f5;
-  --blue-soft: rgba(120, 183, 245, 0.12);
+  --violet: #e1a17a;
+  --violet-soft: rgba(225, 161, 122, 0.13);
+  --blue: #7cb7a0;
+  --blue-soft: rgba(124, 183, 160, 0.12);
   --red: #f07b83;
   --red-soft: rgba(240, 123, 131, 0.13);
   --sidebar: #050e0a;
@@ -558,6 +565,11 @@ html.dark .panel {
   transform: translateY(-1px);
 }
 
+.el-button:not(.is-text):not(.is-link):active {
+  transform: translateY(0) scale(0.97);
+  transition-duration: 120ms;
+}
+
 .el-button--primary {
   --el-button-bg-color: var(--accent);
   --el-button-border-color: var(--accent);
@@ -866,6 +878,33 @@ html.dark .panel {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .metric:hover,
+  .stat-card:hover,
+  .asset-stat:hover,
+  .pipeline-card:hover,
+  .webhook-card:hover,
+  .topology-node.online:hover,
+  .role-card:hover {
+    transform: none;
+  }
+
+  .el-button:not(.is-text) {
+    min-height: 44px;
   }
 }
 

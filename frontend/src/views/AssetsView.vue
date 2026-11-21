@@ -473,6 +473,24 @@ onBeforeUnmount(() => {
             </div>
           </template>
         </el-table>
+        <div class="dataset-mobile-list">
+          <article v-for="row in datasets" :key="row.id" class="dataset-mobile-card">
+            <div class="mobile-card-head">
+              <span class="dataset-icon"><el-icon><FolderOpened /></el-icon></span>
+              <div><strong>{{ row.name }}</strong><span class="mono">{{ row.version }} · {{ formatBytes(row.size_bytes) }}</span></div>
+              <span class="soft-tag" :class="{ builtin: row.is_builtin }">{{ row.is_builtin ? 'builtin' : 'uploaded' }}</span>
+            </div>
+            <div class="mobile-card-meta">
+              <span>{{ row.image_count }} images</span>
+              <span>{{ row.label_count }} labels</span>
+              <span>{{ row.class_count }} classes</span>
+            </div>
+            <div class="mobile-card-actions">
+              <el-button v-if="!row.is_builtin" size="small" text :icon="Download" @click="downloadDataset(row)">下载</el-button>
+              <el-button v-if="!row.is_builtin" size="small" text :loading="actionBusy === row.id" :icon="Delete" @click="removeDataset(row)" />
+            </div>
+          </article>
+        </div>
         <div class="dataset-cta">
           <div class="dataset-cta-copy">
             <span class="soft-label">From data to weights</span>
@@ -542,6 +560,19 @@ onBeforeUnmount(() => {
             </div>
           </template>
         </el-table>
+        <div class="artifact-mobile-list">
+          <article v-for="row in pagedArtifacts" :key="row.id" class="artifact-mobile-card">
+            <div class="mobile-card-head">
+              <span class="artifact-icon" :class="row.kind"><el-icon><Box /></el-icon></span>
+              <div><strong>{{ row.name }}</strong><span class="mono">{{ row.kind }} · {{ formatBytes(row.size_bytes) }}</span></div>
+              <el-button size="small" :icon="Download" @click="downloadArtifact(row)">下载</el-button>
+            </div>
+            <div class="mobile-card-meta">
+              <button class="link-button mono" type="button" @click="openTask(row.task_id)">{{ row.task_id }}</button>
+              <span class="mono">sha {{ row.sha256.slice(0, 10) }}…</span>
+            </div>
+          </article>
+        </div>
         <div v-if="filteredArtifacts.length > artifactPageSize" class="artifact-pager">
           <el-pagination
             v-model:current-page="artifactPage"
@@ -1768,6 +1799,97 @@ html.dark .asset-tab.active strong {
 .webhook-help {
   background:
     linear-gradient(150deg, color-mix(in srgb, var(--panel-soft) 82%, transparent), var(--panel));
+}
+
+.dataset-mobile-list,
+.artifact-mobile-list {
+  display: none;
+}
+
+.dataset-mobile-card,
+.artifact-mobile-card {
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--panel);
+}
+
+.mobile-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobile-card-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mobile-card-head strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-card-head .mono {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 7.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 7.5px;
+}
+
+.mobile-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: 3px;
+}
+
+.mobile-card-actions :deep(.el-button + .el-button) {
+  margin-left: 2px;
+}
+
+.dataset-mobile-list,
+.artifact-mobile-list {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+@media (max-width: 1000px) {
+  .asset-table {
+    display: none;
+  }
+
+  .dataset-mobile-list,
+  .artifact-mobile-list {
+    display: flex;
+  }
+
+  .artifact-mobile-list + .artifact-pager {
+    border-top: none;
+  }
 }
 
 @media (max-width: 1100px) {

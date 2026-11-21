@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowRight,
-  Coin,
   Cpu,
   DataLine,
   Monitor,
@@ -36,12 +35,7 @@ const topologyOpen = ref(false)
 const topologyBusy = ref(false)
 const topologyDraft = ref<NodeTopologyItem[]>([])
 const nodeActionBusy = ref<string | null>(null)
-const compact = ref(false)
 let timer: number | undefined
-
-function syncViewport() {
-  compact.value = window.innerWidth < 1120
-}
 
 const cpu = computed(() => overview.value?.cpu)
 const quota = computed(() => overview.value?.quota)
@@ -75,6 +69,17 @@ const maxTaskCount = computed(() => {
   const values = statusRows.value.map((item) => item.value)
   return Math.max(1, ...values)
 })
+
+const cpuRingBackground = computed(() => {
+  const pct = Math.max(1.5, Math.min(100, cpu.value?.utilization_percent ?? 0))
+  return `conic-gradient(var(--accent-bright) 0 ${pct}%, color-mix(in srgb, var(--border) 36%, transparent) ${pct}% 100%)`
+})
+
+const nodeStatusTone = (status: string) => (status === 'online' ? 'online' : 'offline')
+
+function hostBarHeight(index: number) {
+  return 9 + index * 2
+}
 
 const lastSync = computed(() => {
   const parsed = parseDate(overview.value?.updated_at)
@@ -171,19 +176,16 @@ async function load(silent = false) {
   }
 }
 
-function openTask(task: Task) {
+function openTask(task: { id: string }) {
   router.push({ name: 'task-detail', params: { id: task.id } })
 }
 
 onMounted(async () => {
-  syncViewport()
-  window.addEventListener('resize', syncViewport)
   await load()
   timer = window.setInterval(() => load(true), 3000)
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', syncViewport)
   if (timer) window.clearInterval(timer)
 })
 </script>
@@ -245,38 +247,44 @@ onBeforeUnmount(() => {
     </template>
 
     <template v-else-if="overview">
-      <section class="grid cols-4 stat-grid">
-        <article class="panel stat-card accent-card">
-          <div class="stat-top">
-            <span class="stat-icon"><el-icon><Cpu /></el-icon></span>
-            <span class="stat-kicker">CPU 调度配额</span>
-            <span class="stat-trend">{{ formatPercent(cpu?.utilization_percent) }}</span>
+      <section class="metric-deck">
+        <article class="metric metric-cpu">
+          <div class="metric-kicker">
+            <span class="metric-icon"><el-icon><Cpu /></el-icon></span>
+            CPU ALLOCATION
+            <span class="metric-tag">REALTIME</span>
           </div>
-          <div class="stat-value-row">
-            <strong class="metric-value">{{ cpu?.allocated ?? 0 }}</strong>
-            <span class="stat-denom">/ {{ cpu?.total ?? 0 }} <small>cores</small></span>
+          <div class="metric-cpu-main">
+            <div class="cpu-ring" :style="{ background: cpuRingBackground }">
+              <div class="cpu-ring-inner">
+                <strong>{{ cpu?.allocated ?? 0 }}</strong>
+                <span>/{{ cpu?.total ?? 0 }}</span>
+              </div>
+            </div>
+            <div class="cpu-ring-copy">
+              <strong>{{ formatPercent(cpu?.utilization_percent) }}</strong>
+              <span>cluster utilization</span>
+              <em>{{ cpu?.available ?? 0 }} cores available</em>
+            </div>
           </div>
-          <div class="meter accent">
-            <span :style="{ width: `${cpu?.utilization_percent ?? 0}%` }"></span>
-          </div>
-          <div class="stat-foot">
-            <span>{{ cpu?.available ?? 0 }} 核可调度</span>
-            <span class="stat-inline"><i></i>进程 {{ formatPercent(cpu?.process_percent) }}</span>
+          <div class="metric-meter"><span :style="{ width: `${cpu?.utilization_percent ?? 0}%` }"></span></div>
+          <div class="metric-foot">
+            <span>{{ onlineNodes.length }} nodes · {{ overview.tasks.pending }} queued</span>
+            <strong>{{ overview.tasks.running }} tasks live</strong>
           </div>
         </article>
 
-        <article class="panel stat-card">
-          <div class="stat-top">
-            <span class="stat-icon amber"><el-icon><Odometer /></el-icon></span>
-            <span class="stat-kicker">任务队列</span>
-            <span class="stat-trend neutral">实时</span>
+        <article class="metric metric-queue">
+          <div class="metric-kicker">
+            <span class="metric-icon amber"><el-icon><Odometer /></el-icon></span>
+            QUEUE PRESSURE
+            <span class="metric-tag">LIVE</span>
           </div>
-          <div class="stat-value-row">
-            <strong class="metric-value">{{ overview.tasks.running }}</strong>
-            <span class="stat-denom"><small>运行中</small></span>
-            <span class="stat-separator">·</span>
-            <strong class="metric-value queue-count">{{ overview.tasks.pending }}</strong>
-            <span class="stat-denom"><small>排队</small></span>
+          <div class="queue-main">
+            <strong>{{ overview.tasks.running }}</strong>
+            <span>运行中</span>
+            <em>+{{ overview.tasks.pending }}</em>
+            <span class="queue-waiting">waiting</span>
           </div>
           <div class="queue-strip">
             <span
@@ -286,63 +294,47 @@ onBeforeUnmount(() => {
               :style="{ flexGrow: Math.max(0.14, row.value), background: row.color }"
             ></span>
           </div>
-          <div class="stat-foot">
+          <div class="metric-foot">
             <span>累计 {{ overview.tasks.total }} 个任务</span>
-            <span class="stat-inline">{{ overview.tasks.succeeded }} 成功</span>
+            <span>{{ overview.tasks.succeeded }} 成功</span>
           </div>
         </article>
 
-        <article class="panel stat-card">
-          <div class="stat-top">
-            <span class="stat-icon violet"><el-icon><Monitor /></el-icon></span>
-            <span class="stat-kicker">主机 CPU 负载</span>
-            <span class="stat-trend neutral">{{ cpu?.host_logical_cores ?? '—' }} threads</span>
+        <article class="metric metric-host">
+          <div class="metric-kicker">
+            <span class="metric-icon copper"><el-icon><Monitor /></el-icon></span>
+            HOST LOAD
+            <span class="metric-tag">{{ cpu?.host_logical_cores ?? '—' }} THREADS</span>
           </div>
-          <div class="host-load-row">
-            <strong class="metric-value">{{ formatPercent(cpu?.host_percent) }}</strong>
-            <div class="host-bars" aria-hidden="true">
-              <i
-                v-for="idx in 12"
-                :key="idx"
-                :class="{ on: (cpu?.host_percent ?? 0) >= idx * 8.3 }"
-              ></i>
-            </div>
+          <div class="host-main">
+            <strong>{{ formatPercent(cpu?.host_percent) }}</strong>
+            <span>host CPU</span>
           </div>
-          <div class="meter violet">
-            <span :style="{ width: `${cpu?.host_percent ?? 0}%` }"></span>
+          <div class="host-bars" aria-hidden="true">
+            <i
+              v-for="idx in 12"
+              :key="idx"
+              :class="{ on: (cpu?.host_percent ?? 0) >= idx * 8.3 }"
+              :style="{ height: `${hostBarHeight(idx-1)}px` }"
+            ></i>
           </div>
-          <div class="stat-foot">
-            <span>主机真实占用</span>
-            <span class="stat-inline">逻辑核 {{ cpu?.host_logical_cores ?? '—' }}</span>
+          <div class="host-scale">
+            <span>{{ formatPercent(cpu?.process_percent) }} process</span>
+            <span>{{ formatPercent(overview.memory.percent, 0) }} memory</span>
           </div>
-        </article>
-
-        <article class="panel stat-card">
-          <div class="stat-top">
-            <span class="stat-icon blue"><el-icon><Coin /></el-icon></span>
-            <span class="stat-kicker">主机内存</span>
-            <span class="stat-trend neutral">{{ memoryGB.total }} GB</span>
-          </div>
-          <div class="stat-value-row">
-            <strong class="metric-value">{{ formatPercent(overview.memory.percent, 0) }}</strong>
-            <span class="stat-denom"><small>已使用</small></span>
-          </div>
-          <div class="meter blue">
-            <span :style="{ width: `${overview.memory.percent}%` }"></span>
-          </div>
-          <div class="stat-foot">
+          <div class="metric-foot">
             <span>{{ memoryGB.used }} / {{ memoryGB.total }} GB</span>
-            <span class="stat-inline">{{ memoryGB.available }} GB 可用</span>
+            <span class="copper-copy">{{ memoryGB.available }} GB available</span>
           </div>
         </article>
       </section>
 
       <section class="grid overview-main">
-        <div class="panel nodes-panel">
+        <div class="panel topology-panel">
           <div class="panel-head">
             <div>
-              <h2><span class="head-index">01</span> 节点资源</h2>
-              <p class="panel-caption">CPU 配额按逻辑核心分配，表中同时展示主机真实负载</p>
+              <h2><span class="head-index">01</span> LIVE CLUSTER TOPOLOGY</h2>
+              <p class="panel-caption">调度决策、节点容量与正在运行的 Task</p>
             </div>
             <div class="panel-head-actions">
               <span class="tag-soft accent"><span class="dot"></span>{{ onlineNodes.length }} online</span>
@@ -350,73 +342,77 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <el-table :data="overview.nodes" class="node-table" row-key="id">
-            <el-table-column label="节点" :min-width="compact ? 140 : 170">
-              <template #default="{ row }">
-                <div class="node-name">
-                  <span class="node-glyph"><el-icon><Cpu /></el-icon></span>
+          <div class="topology-stage">
+            <div class="topology-hub">
+              <span class="hub-label"><i></i>SCHEDULER · PRIORITY QUEUE</span>
+              <strong>Ray Head</strong>
+              <small>{{ services?.ray_address ?? '127.0.0.1:6380' }} · {{ services?.ray_cpus ?? '—' }} CPU</small>
+              <span class="hub-version">v{{ services?.ray_version ?? '—' }}</span>
+            </div>
+            <div class="topology-bus"></div>
+            <div class="topology-nodes">
+              <article
+                v-for="node in overview.nodes"
+                :key="node.id"
+                class="topology-node"
+                :class="nodeStatusTone(node.status)"
+              >
+                <div class="topology-node-head">
+                  <span class="topology-node-glyph"><el-icon><Cpu /></el-icon></span>
                   <div>
-                    <strong>{{ row.name }}</strong>
-                    <span>{{ row.hostname }} · {{ row.id }}</span>
+                    <strong>{{ node.name }}</strong>
+                    <span>{{ node.hostname }}</span>
                   </div>
+                  <span class="topology-status" :class="nodeStatusTone(node.status)">
+                    <i></i>{{ node.status === 'online' ? 'ONLINE' : 'OFFLINE' }}
+                  </span>
                 </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="状态" :width="compact ? 64 : 82">
-              <template #default="{ row }">
-                <span class="node-status" :class="{ online: row.status === 'online' }">
-                  <i></i>{{ row.status === 'online' ? '在线' : row.status }}
-                </span>
-              </template>
-            </el-table-column>
-            <el-table-column label="调度占用" :min-width="compact ? 120 : 150">
-              <template #default="{ row }">
-                <div class="node-meter-cell">
-                  <div class="row between node-meter-top">
-                    <span class="mono">{{ row.allocated_cpus }} / {{ row.total_cpus }} 核</span>
-                    <strong>{{ formatPercent(row.cpu_utilization_percent, 0) }}</strong>
+                <div class="topology-node-meter">
+                  <div>
+                    <span>{{ node.allocated_cpus }} / {{ node.total_cpus }} cores</span>
+                    <b>{{ formatPercent(node.cpu_utilization_percent, 0) }}</b>
                   </div>
-                  <div class="meter compact">
-                    <span :style="{ width: `${row.cpu_utilization_percent}%` }"></span>
-                  </div>
+                  <div class="meter compact"><span :style="{ width: `${node.cpu_utilization_percent}%` }"></span></div>
                 </div>
-              </template>
-            </el-table-column>
-            <el-table-column v-if="!compact" label="主机负载" min-width="135">
-              <template #default="{ row }">
-                <div class="node-meter-cell">
-                  <div class="row between node-meter-top">
-                    <span class="mono">{{ formatPercent(row.host_percent) }}</span>
-                  </div>
-                  <div class="meter compact violet">
-                    <span :style="{ width: `${row.host_percent}%` }"></span>
-                  </div>
+                <div class="topology-tasks">
+                  <button
+                    v-for="task in node.active_tasks.slice(0, 3)"
+                    :key="task.id"
+                    type="button"
+                    class="topology-task"
+                    @click="openTask(task)"
+                  >
+                    <i></i>
+                    <span>{{ task.name }}</span>
+                    <b>{{ Math.round(task.progress) }}%</b>
+                  </button>
+                  <span v-if="node.active_tasks.length > 3" class="topology-task-more">
+                    +{{ node.active_tasks.length - 3 }} running
+                  </span>
+                  <span v-if="!node.active_tasks.length" class="topology-idle">
+                    {{ node.status === 'online' ? 'IDLE · awaiting task' : 'STANDBY · no allocation' }}
+                  </span>
                 </div>
-              </template>
-            </el-table-column>
-            <el-table-column v-if="!compact" label="运行任务" width="84" align="center">
-              <template #default="{ row }">
-                <span class="task-count-pill">{{ row.running_tasks }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column v-if="!compact" label="操作" width="76" align="center">
-              <template #default="{ row }">
-                <el-button
-                  size="small"
-                  text
-                  :loading="nodeActionBusy === row.id"
-                  @click="toggleNode(row)"
-                >
-                  {{ row.status === 'online' ? '下线' : '上线' }}
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+                <div class="topology-node-foot">
+                  <span>HOST {{ formatPercent(node.host_percent) }}</span>
+                  <button
+                    type="button"
+                    class="topology-node-action"
+                    :disabled="nodeActionBusy === node.id"
+                    @click.stop="toggleNode(node)"
+                  >
+                    {{ node.status === 'online' ? '下线' : '上线' }} ↗
+                  </button>
+                </div>
+              </article>
+            </div>
+          </div>
 
           <div class="node-policy">
             <span><el-icon><Timer /></el-icon> 心跳超时自动回收</span>
             <span>调度粒度为 1 CPU 核</span>
             <span>Ray 逻辑资源 {{ services?.ray_cpus ?? '—' }} CPU</span>
+            <span class="node-policy-legend"><i></i>running task <i class="idle"></i>idle</span>
           </div>
         </div>
 
@@ -1739,6 +1735,807 @@ html.dark .accent-card {
 
   .stat-value-row .metric-value {
     font-size: 31px;
+  }
+}
+</style>
+
+<style scoped>
+/* Direction A · Precision Console */
+.metric-deck {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 15px;
+}
+
+.metric {
+  position: relative;
+  min-height: 168px;
+  overflow: hidden;
+  padding: 18px 19px 15px;
+  border: 1px solid var(--border);
+  border-radius: 19px;
+  background: var(--panel);
+  box-shadow: var(--shadow-panel);
+  transition: border-color 0.22s ease, box-shadow 0.22s ease, transform 0.22s ease;
+}
+
+.metric:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
+.metric-cpu {
+  border-color: rgba(76, 240, 179, 0.25);
+  background:
+    radial-gradient(320px 180px at 100% 0%, rgba(89, 255, 193, 0.2), transparent 68%),
+    radial-gradient(220px 160px at 5% 110%, rgba(198, 243, 106, 0.08), transparent 70%),
+    linear-gradient(145deg, #0a2b1f 0%, #061b12 55%, #04140d 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 26px 50px -32px rgba(4, 28, 18, 0.55);
+}
+
+.metric-kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.metric-cpu .metric-kicker {
+  color: #98b9aa;
+}
+
+.metric-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  place-items: center;
+  border: 1px solid rgba(11, 151, 103, 0.12);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.metric-cpu .metric-icon {
+  border-color: rgba(106, 255, 202, 0.18);
+  background: rgba(79, 240, 181, 0.1);
+  color: #8bffd6;
+  box-shadow: 0 0 22px -10px rgba(83, 255, 191, 0.8);
+}
+
+.metric-icon.amber {
+  border-color: rgba(216, 138, 8, 0.13);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.metric-icon.copper {
+  border-color: rgba(192, 120, 75, 0.14);
+  background: var(--copper-soft);
+  color: var(--copper);
+}
+
+.metric-tag {
+  margin-left: auto;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: var(--panel-soft);
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 500;
+}
+
+.metric-cpu .metric-tag {
+  background: rgba(94, 243, 185, 0.11);
+  color: #9dffda;
+}
+
+.metric-cpu-main {
+  display: flex;
+  align-items: center;
+  gap: 17px;
+  margin-top: 12px;
+}
+
+.cpu-ring {
+  position: relative;
+  display: grid;
+  width: 92px;
+  height: 92px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  box-shadow: 0 0 30px -18px var(--accent-bright);
+}
+
+.cpu-ring::before {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: #0a2319;
+}
+
+.cpu-ring-inner {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.cpu-ring-inner strong {
+  color: #f2fff9;
+  font-family: var(--font-display);
+  font-size: 27px;
+  line-height: 1;
+  letter-spacing: -0.06em;
+}
+
+.cpu-ring-inner span {
+  color: #8aac9c;
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.cpu-ring-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cpu-ring-copy strong {
+  color: #f2fff9;
+  font-family: var(--font-display);
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: -0.06em;
+}
+
+.cpu-ring-copy span {
+  color: #8aac9c;
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.cpu-ring-copy em {
+  margin-top: 6px;
+  color: #d1ffb3;
+  font-family: var(--mono);
+  font-size: 7.5px;
+  font-style: normal;
+}
+
+.metric-meter {
+  height: 4px;
+  margin-top: 11px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.metric-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-bright), var(--lime));
+  box-shadow: 0 0 14px rgba(92, 255, 193, 0.45);
+  transition: width 0.45s ease;
+}
+
+.metric-cpu .metric-foot {
+  color: #8eae9f;
+}
+
+.metric-cpu .metric-foot strong {
+  color: #d6ffd6;
+  font-weight: 500;
+}
+
+.metric-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.metric-foot strong {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.queue-main {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.queue-main strong {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 650;
+  line-height: 0.9;
+  letter-spacing: -0.06em;
+}
+
+.queue-main > span:not(.queue-waiting) {
+  margin-bottom: 2px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.queue-main em {
+  margin-bottom: 2px;
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 18px;
+  font-style: normal;
+}
+
+.queue-waiting {
+  margin-left: auto;
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 7px;
+}
+
+.queue-strip {
+  height: 6px;
+  margin-top: 15px;
+}
+
+.queue-strip-seg {
+  min-width: 3px;
+}
+
+.metric-host .host-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 19px;
+}
+
+.metric-host .host-main strong {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 35px;
+  line-height: 1;
+  letter-spacing: -0.06em;
+}
+
+.metric-host .host-main span {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.metric-host .host-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 32px;
+  margin-top: 10px;
+}
+
+.metric-host .host-bars i {
+  width: 6px;
+  background: color-mix(in srgb, var(--copper) 24%, var(--border));
+  opacity: 0.7;
+  transition: height 0.45s ease, opacity 0.2s ease, background 0.2s ease;
+}
+
+.metric-host .host-bars i.on {
+  background: var(--copper);
+  opacity: 0.82;
+}
+
+.metric-host .host-bars i:nth-child(6n) {
+  opacity: 0.84;
+}
+
+.metric-host .host-bars i:nth-child(n+8) {
+  opacity: 0.72;
+}
+
+.metric-host .host-bars i.on:nth-child(n+8) {
+  opacity: 0.9;
+}
+
+.host-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 7px;
+}
+
+.copper-copy {
+  color: var(--copper) !important;
+}
+
+.overview-main {
+  grid-template-columns: minmax(0, 1.68fr) minmax(300px, 0.92fr);
+  gap: 15px;
+}
+
+.topology-panel {
+  border-color: rgba(11, 59, 40, 0.18);
+  background:
+    radial-gradient(500px 260px at 100% 0%, rgba(83, 240, 179, 0.11), transparent 68%),
+    linear-gradient(145deg, #09271b 0%, #051a11 58%, #04130c 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.065) inset,
+    0 28px 64px -40px rgba(3, 27, 15, 0.68);
+}
+
+.topology-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(154, 255, 215, 0.032) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(154, 255, 215, 0.032) 1px, transparent 1px);
+  background-size: 30px 30px;
+  mask-image: radial-gradient(circle at 55% 0%, black, transparent 75%);
+}
+
+.topology-panel .panel-head {
+  position: relative;
+  z-index: 1;
+  border-bottom-color: rgba(255, 255, 255, 0.075);
+}
+
+.topology-panel .panel-head h2 {
+  color: #e9fff6;
+}
+
+.topology-panel .panel-head .panel-caption {
+  color: #6d8d7d;
+}
+
+.topology-panel .tag-soft.accent {
+  border-color: rgba(111, 255, 204, 0.18);
+  background: rgba(66, 225, 164, 0.08);
+  color: #91ffd7;
+}
+
+.topology-stage {
+  position: relative;
+  z-index: 1;
+  min-height: 300px;
+  padding: 18px 18px 22px;
+}
+
+.topology-hub {
+  position: relative;
+  z-index: 3;
+  width: 180px;
+  margin: 0 auto;
+  padding: 10px 12px;
+  border: 1px solid rgba(126, 255, 204, 0.22);
+  border-radius: 11px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(76, 240, 178, 0.18), transparent 65%),
+    #09251a;
+  color: #e4fff3;
+  text-align: center;
+  box-shadow: 0 0 42px -18px rgba(63, 230, 169, 0.95);
+}
+
+.topology-hub::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 1px;
+  height: 28px;
+  background: linear-gradient(180deg, rgba(83, 231, 172, 0.8), rgba(83, 231, 172, 0.15));
+}
+
+.hub-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: #6e9a85;
+  font-family: var(--mono);
+  font-size: 6.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.hub-label i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 8px var(--lime);
+}
+
+.topology-hub strong {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 560;
+  letter-spacing: -0.02em;
+}
+
+.topology-hub small {
+  display: block;
+  margin-top: 2px;
+  color: #6e9a85;
+  font-family: var(--mono);
+  font-size: 6.5px;
+}
+
+.hub-version {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(79, 240, 181, 0.1);
+  color: #8bffd6;
+  font-family: var(--mono);
+  font-size: 6px;
+}
+
+.topology-bus {
+  position: relative;
+  height: 1px;
+  margin: 28px 8% 0;
+  background: linear-gradient(90deg, transparent, rgba(91, 225, 170, 0.48) 12%, rgba(91, 225, 170, 0.48) 88%, transparent);
+}
+
+.topology-bus::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 1px;
+  height: 0;
+}
+
+.topology-nodes {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(164px, 1fr));
+  gap: 11px;
+  margin-top: 27px;
+}
+
+.topology-node {
+  position: relative;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(120, 255, 204, 0.15);
+  border-radius: 10px;
+  background:
+    linear-gradient(150deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.014));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 20px 30px -28px rgba(0, 0, 0, 0.9);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.topology-node::before {
+  content: '';
+  position: absolute;
+  top: -28px;
+  left: 50%;
+  width: 1px;
+  height: 28px;
+  background: linear-gradient(180deg, rgba(91, 225, 170, 0.48), rgba(91, 225, 170, 0.1));
+}
+
+.topology-node.online:hover {
+  border-color: rgba(113, 255, 207, 0.32);
+  background:
+    linear-gradient(150deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.018));
+}
+
+.topology-node.offline {
+  opacity: 0.53;
+}
+
+.topology-node.offline::before {
+  background: linear-gradient(180deg, rgba(150, 180, 164, 0.22), transparent);
+}
+
+.topology-node-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.topology-node-glyph {
+  display: grid;
+  width: 21px;
+  height: 21px;
+  flex: none;
+  place-items: center;
+  border: 1px solid rgba(106, 248, 193, 0.18);
+  border-radius: 6px;
+  background: rgba(77, 235, 174, 0.08);
+  color: #8effd6;
+  font-size: 11px;
+}
+
+.topology-node-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.topology-node-head strong {
+  overflow: hidden;
+  color: #d9f4e8;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topology-node-head > div span {
+  overflow: hidden;
+  color: #587a6a;
+  font-family: var(--mono);
+  font-size: 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topology-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: #5ee4ac;
+  font-family: var(--mono);
+  font-size: 6px;
+  letter-spacing: 0.07em;
+}
+
+.topology-status i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.topology-status.offline {
+  color: #a08071;
+}
+
+.topology-node-meter {
+  margin-top: 9px;
+}
+
+.topology-node-meter > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 5px;
+  color: #648676;
+  font-family: var(--mono);
+  font-size: 6.5px;
+}
+
+.topology-node-meter b {
+  color: #a9d3c0;
+  font-weight: 500;
+}
+
+.topology-node-meter .meter {
+  height: 3px;
+  margin-top: 5px;
+  background: rgba(255, 255, 255, 0.075);
+  box-shadow: none;
+}
+
+.topology-node-meter .meter span {
+  background: linear-gradient(90deg, #2bce92, #9dffc6);
+  box-shadow: 0 0 10px rgba(72, 238, 169, 0.35);
+}
+
+.topology-node.offline .topology-node-meter .meter span {
+  width: 0 !important;
+}
+
+.topology-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 43px;
+  margin-top: 8px;
+}
+
+.topology-task {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #a9cbb9;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.topology-task:hover {
+  border-color: rgba(105, 239, 185, 0.2);
+  background: rgba(77, 235, 174, 0.07);
+}
+
+.topology-task i {
+  width: 4px;
+  height: 4px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent-bright);
+  box-shadow: 0 0 6px var(--accent-bright);
+}
+
+.topology-task span {
+  overflow: hidden;
+  color: #b1cfbf;
+  font-family: var(--mono);
+  font-size: 7.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topology-task b {
+  margin-left: auto;
+  color: #d1ffb3;
+  font-family: var(--mono);
+  font-size: 7px;
+  font-weight: 500;
+}
+
+.topology-idle,
+.topology-task-more {
+  padding: 4px 0;
+  color: #4f7161;
+  font-family: var(--mono);
+  font-size: 6.5px;
+}
+
+.topology-task-more {
+  color: #87a998;
+}
+
+.topology-node-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.055);
+  color: #6b8b7b;
+  font-family: var(--mono);
+  font-size: 7px;
+}
+
+.topology-node-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8eb7a3;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 7px;
+}
+
+.topology-node-action:hover {
+  color: #b6ffdf;
+}
+
+.topology-panel .node-policy {
+  position: relative;
+  z-index: 1;
+  border-top-color: rgba(255, 255, 255, 0.075);
+  background: rgba(255, 255, 255, 0.018);
+  color: #5d8070;
+}
+
+.node-policy-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+
+.node-policy-legend i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent-bright);
+}
+
+.node-policy-legend i.idle {
+  background: #5e7b6b;
+}
+
+@media (max-width: 1180px) {
+  .metric-deck {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric-cpu {
+    grid-column: span 2;
+  }
+
+  .metric-host {
+    grid-column: auto;
+  }
+
+  .overview-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .metric-deck {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .metric-cpu {
+    grid-column: span 1;
+  }
+
+  .metric-host {
+    grid-column: span 1;
+  }
+
+  .metric {
+    min-height: 150px;
+  }
+
+  .topology-stage {
+    padding: 15px 12px 16px;
+  }
+
+  .topology-hub {
+    width: 170px;
+  }
+
+  .topology-nodes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .topology-node::before,
+  .topology-bus {
+    display: none;
+  }
+
+  .node-policy-legend {
+    display: none;
   }
 }
 </style>

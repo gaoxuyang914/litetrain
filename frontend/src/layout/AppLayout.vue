@@ -125,7 +125,7 @@ onBeforeUnmount(() => {
           <strong>LiteTrain</strong>
           <small>CPU TRAINING LAB</small>
         </span>
-        <span class="brand-badge">2.1</span>
+        <span class="brand-badge">2.2</span>
       </div>
 
       <div class="nav-block" v-for="group in navGroups" :key="group.label">
@@ -203,7 +203,7 @@ onBeforeUnmount(() => {
           <span class="sidebar-doc-arrow">↗</span>
         </a>
         <div class="sidebar-signature">
-          <span class="mono">v2.1.0</span>
+          <span class="mono">v2.2.0</span>
           <span>CPU only · local first</span>
         </div>
       </div>
@@ -292,7 +292,7 @@ onBeforeUnmount(() => {
       </main>
 
       <footer class="app-footer">
-        <span>LiteTrain 2.1 · CPU-only YOLO training control plane</span>
+        <span>LiteTrain 2.2 · CPU-only YOLO training control plane</span>
         <span class="mono">FastAPI · Redis · Ray · SQLite</span>
       </footer>
     </div>
