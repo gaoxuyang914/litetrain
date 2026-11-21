@@ -1,0 +1,553 @@
+"""CPU-aware task scheduler, watchdog and lifecycle state machine."""
+
+from __future__ import annotations
+
+import logging
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from sqlalchemy import delete, select
+
+from app.config import Settings
+from app.database import Database, utcnow
+from app.models import (
+    AllocationState,
+    ResourceAllocation,
+    Task,
+    TaskMetric,
+    TaskStatus,
+)
+from app.schemas import CancelResponse
+from app.services.event_bus import EventBroker
+from app.services.executors import ExecutionManager
+from app.services.logs import LogStore
+from app.services.resources import ResourceService
+from app.services.tasks import TaskNotFoundError, TaskService, add_event, runtime_seconds
+
+logger = logging.getLogger(__name__)
+
+
+def _short_reason(reason: str | None, limit: int = 600) -> str:
+    text = (reason or "unknown_error").strip()
+    return text[:limit] + ("…" if len(text) > limit else "")
+
+
+class TaskConflictError(RuntimeError):
+    pass
+
+
+class Scheduler:
+    def __init__(
+        self,
+        settings: Settings,
+        db: Database,
+        log_store: LogStore,
+        broker: EventBroker,
+        resources: ResourceService,
+        execution: ExecutionManager,
+        tasks: TaskService,
+    ) -> None:
+        self.settings = settings
+        self.db = db
+        self.log_store = log_store
+        self.broker = broker
+        self.resources = resources
+        self.execution = execution
+        self.tasks = tasks
+        self._state_lock = threading.RLock()
+        self._stop_event = threading.Event()
+        self._wake_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._started_at = utcnow()
+        self.last_tick_at: datetime | None = None
+        self.last_error: str | None = None
+
+    # ------------------------------------------------------------- lifecycle
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._loop, name="litetrain-scheduler", daemon=True)
+        self._thread.start()
+        logger.info("scheduler started (interval %.1fs)", self.settings.scheduler_interval_seconds)
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        self._wake_event.set()
+        if self._thread:
+            self._thread.join(timeout=5)
+        logger.info("scheduler stopped")
+
+    def wake(self) -> None:
+        self._wake_event.set()
+
+    def _loop(self) -> None:
+        while not self._stop_event.is_set():
+            started = time.monotonic()
+            try:
+                self.tick()
+                self.last_error = None
+            except Exception as exc:  # pragma: no cover - defensive loop
+                self.last_error = f"{type(exc).__name__}: {exc}"
+                logger.exception("scheduler tick failed")
+            remaining = self.settings.scheduler_interval_seconds - (time.monotonic() - started)
+            self._wake_event.wait(max(0.05, remaining))
+            self._wake_event.clear()
+
+    # ---------------------------------------------------------------- recovery
+    def recover(self) -> None:
+        """Reconcile durable state after a process restart.
+
+        Running processes that are still alive are kept and their heartbeat
+        window is refreshed. Finished workers are finalized from their durable
+        result file. Everything else is failed (and retried if configured).
+        """
+        with self._state_lock:
+            with self.db.session() as session:
+                running = session.scalars(
+                    select(Task).where(Task.status == TaskStatus.RUNNING.value)
+                ).all()
+                # Allocations for non-running tasks are leftovers.
+                stale_allocations = session.scalars(
+                    select(ResourceAllocation).where(
+                        ResourceAllocation.state == AllocationState.ACTIVE.value
+                    )
+                ).all()
+                running_ids = {task.id for task in running}
+                for allocation in stale_allocations:
+                    if allocation.task_id not in running_ids:
+                        allocation.state = AllocationState.RELEASED.value
+                        allocation.released_at = utcnow()
+                session.flush()
+
+            for task in running:
+                self._recover_one(task.id)
+            self.wake()
+
+    def _recover_one(self, task_id: str) -> None:
+        with self.db.session() as session:
+            task = session.get(Task, task_id)
+            if task is None or task.status != TaskStatus.RUNNING.value:
+                return
+            result = self.execution.result(task)
+            if result is not None:
+                exit_code = int(result.get("exit_code", 1))
+                if exit_code == 0:
+                    self._finish(task, TaskStatus.SUCCEEDED, exit_code, None, session=session)
+                else:
+                    reason = _short_reason(
+                        str(result.get("error") or f"worker_exit_code_{exit_code}")
+                    )
+                    self._finish(task, TaskStatus.FAILED, exit_code, reason, session=session)
+                return
+
+            alive = self.execution.process_alive(task) or self.execution.actor_alive(task)
+            if alive:
+                task.last_heartbeat_at = utcnow()
+                add_event(
+                    session,
+                    task.id,
+                    "recovered",
+                    "Platform restarted; reattached to the running worker",
+                )
+                self.log_store.append(
+                    task.id,
+                    "[platform] platform restarted — reattached to running worker; "
+                    "heartbeat window refreshed",
+                )
+                self.broker.publish("task.recovered", task.id)
+            else:
+                reason = "orchestrator_restart_worker_lost"
+                self.log_store.append(
+                    task.id,
+                    "[platform] platform restarted and the worker could not be found; "
+                    "marking the attempt failed",
+                )
+                self._finish(task, TaskStatus.FAILED, None, reason, session=session)
+
+    # ------------------------------------------------------------------- tick
+    def tick(self) -> None:
+        with self.broker.scheduler_lock(ttl_ms=self.settings.scheduler_lock_ttl_ms) as acquired:
+            if not acquired:
+                return
+            with self._state_lock:
+                self._watch_running()
+                self._schedule_pending()
+            self.last_tick_at = utcnow()
+
+    # --------------------------------------------------------------- watchdog
+    def _watch_running(self) -> None:
+        with self.db.session() as session:
+            running = session.scalars(
+                select(Task).where(Task.status == TaskStatus.RUNNING.value)
+            ).all()
+            snapshots = [(task.id, task.status) for task in running]
+        for task_id, _ in snapshots:
+            self._inspect_running(task_id)
+
+    def _inspect_running(self, task_id: str) -> None:
+        now = utcnow()
+        with self.db.session() as session:
+            task = session.get(Task, task_id)
+            if task is None or task.status != TaskStatus.RUNNING.value:
+                return
+            result = self.execution.result(task)
+            if result is not None:
+                exit_code = result.get("exit_code")
+                try:
+                    code = int(exit_code) if exit_code is not None else 1
+                except (TypeError, ValueError):
+                    code = 1
+                if code == 0:
+                    self._finish(task, TaskStatus.SUCCEEDED, code, None, session=session)
+                else:
+                    reason = _short_reason(
+                        str(result.get("error") or f"worker_exit_code_{code}")
+                    )
+                    self._finish(task, TaskStatus.FAILED, code, reason, session=session)
+                return
+
+            if task.started_at:
+                running_for = (now - task.started_at).total_seconds()
+                if running_for > task.max_runtime_seconds:
+                    self._terminate(
+                        task,
+                        TaskStatus.FAILED,
+                        "runtime_timeout",
+                        f"Task exceeded max runtime ({task.max_runtime_seconds}s)",
+                        session=session,
+                    )
+                    return
+
+            heartbeat_reference = task.last_heartbeat_at or task.started_at
+            if heartbeat_reference:
+                stale_for = (now - heartbeat_reference).total_seconds()
+                if stale_for > self.settings.heartbeat_timeout_seconds:
+                    self._terminate(
+                        task,
+                        TaskStatus.FAILED,
+                        "heartbeat_timeout",
+                        f"No worker heartbeat for {int(stale_for)}s "
+                        f"(limit {self.settings.heartbeat_timeout_seconds}s)",
+                        session=session,
+                    )
+                    return
+
+            # Fast path: a launched process that disappeared without writing a
+            # result is a failure rather than something to wait for forever.
+            if task.pid and task.started_at:
+                started_for = (now - task.started_at).total_seconds()
+                if started_for > 2 and not self.execution.process_alive(task):
+                    self._finish(
+                        task,
+                        TaskStatus.FAILED,
+                        None,
+                        "worker_exited_without_result",
+                        session=session,
+                    )
+                    return
+
+            # A worker that never produced a heartbeat is handled by the
+            # heartbeat watchdog above. Do not fail a task merely because the
+            # launch-result PID was lost in a control-plane crash window: the
+            # detached actor may still be starting the worker.
+
+    # --------------------------------------------------------------- dispatch
+    def _schedule_pending(self) -> None:
+        with self.db.session() as session:
+            pending = session.scalars(
+                select(Task)
+                .where(Task.status == TaskStatus.PENDING.value)
+                .order_by(Task.priority.desc(), Task.submitted_at.asc())
+            ).all()
+            candidate_ids = [task.id for task in pending]
+
+        for task_id in candidate_ids:
+            if self._stop_event.is_set():
+                return
+            with self.db.session() as session:
+                task = session.get(Task, task_id)
+                if task is None or task.status != TaskStatus.PENDING.value:
+                    continue
+                if not self.resources.available_for(session, task.owner, task.cpu_cores):
+                    continue
+                # Atomic claim inside this SQLite write transaction.
+                task.status = TaskStatus.RUNNING.value
+                task.started_at = utcnow()
+                task.last_heartbeat_at = task.started_at
+                task.finished_at = None
+                task.exit_code = None
+                task.progress = 0.0
+                task.cancel_requested_at = None
+                task.latest_cpu_percent = 0.0
+                task.latest_memory_mb = 0.0
+                # Persist the planned execution identity before launching, so a
+                # control-plane crash in the launch window can still find (or
+                # safely fail) a detached Ray actor.
+                task.executor = self.execution.backend
+                task.ray_actor_name = (
+                    self.execution.actor_name(task) if self.execution.backend == "ray" else None
+                )
+                self.resources.create_allocation(session, task)
+                add_event(
+                    session,
+                    task.id,
+                    "scheduled",
+                    f"Allocated {task.cpu_cores} CPU core(s) on {self.settings.node_id}",
+                )
+                session.flush()
+                claimed_task = task
+
+            self.log_store.append(
+                claimed_task.id,
+                f"[platform] starting · {claimed_task.cpu_cores} CPU core(s) · "
+                f"priority {claimed_task.priority} · attempt {claimed_task.attempt} "
+                f"· executor {self.execution.backend}",
+            )
+            self.broker.publish("task.started", claimed_task.id, {"status": TaskStatus.RUNNING.value})
+            try:
+                launch = self.execution.launch(claimed_task)
+            except Exception as exc:
+                logger.exception("failed to launch task %s", claimed_task.id)
+                self._fail_launch(claimed_task.id, exc)
+                continue
+            with self.db.session() as session:
+                live = session.get(Task, claimed_task.id)
+                if live is None:
+                    continue
+                live.executor = launch.executor
+                live.ray_actor_name = launch.actor_name
+                live.pid = launch.pid
+                live.pid_create_time = launch.pid_create_time
+                live.last_heartbeat_at = utcnow()
+                session.flush()
+            self.log_store.append(
+                claimed_task.id,
+                f"[platform] worker launched via {launch.executor} (pid {launch.pid})",
+            )
+            self.broker.publish(
+                "task.worker_launched",
+                claimed_task.id,
+                {"executor": launch.executor, "pid": launch.pid},
+            )
+
+    def _fail_launch(self, task_id: str, exc: Exception) -> None:
+        with self.db.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                return
+            task.exit_code = None
+            self._finish(
+                task,
+                TaskStatus.FAILED,
+                None,
+                _short_reason(f"launch_error: {type(exc).__name__}: {exc}"),
+                session=session,
+            )
+
+    # ----------------------------------------------------------- transitions
+    def _finish(
+        self,
+        task: Task,
+        status: TaskStatus,
+        exit_code: int | None,
+        failure_reason: str | None,
+        *,
+        session,
+    ) -> None:
+        """Finish one attempt, optionally requeuing it for a retry."""
+        # Kill/release the executor while the original executor metadata is
+        # still on the task. This is especially important before a retry resets
+        # the actor name/pid fields.
+        try:
+            self.execution.cleanup(task)
+        except Exception:
+            logger.exception("executor cleanup failed for %s", task.id)
+        now = utcnow()
+        released = self.resources.release_allocation(session, task.id)
+        retry = (
+            status is TaskStatus.FAILED
+            and task.retry_count < task.max_retries
+            and self._retry_eligible(failure_reason)
+        )
+        duration = runtime_seconds(task, now)
+        if status is TaskStatus.SUCCEEDED:
+            task.status = TaskStatus.SUCCEEDED.value
+            task.exit_code = exit_code if exit_code is not None else 0
+            task.failure_reason = None
+            task.progress = 100.0
+            task.finished_at = now
+            event_type = "succeeded"
+            message = f"Training succeeded in {duration}s"
+            level = "success"
+        elif retry:
+            # A new attempt must not inherit the previous attempt's result
+            # marker or epoch metric points (unique by task/name/epoch).
+            try:
+                Path(task.result_path).unlink(missing_ok=True)
+            except OSError:
+                logger.warning("could not reset result marker for %s", task.id)
+            session.execute(delete(TaskMetric).where(TaskMetric.task_id == task.id))
+            task.status = TaskStatus.PENDING.value
+            task.queued_at = now
+            task.retry_count += 1
+            task.executor = None
+            task.ray_actor_name = None
+            task.pid = None
+            task.pid_create_time = None
+            task.started_at = None
+            task.finished_at = None
+            task.last_heartbeat_at = None
+            task.exit_code = None
+            task.progress = 0.0
+            task.latest_cpu_percent = None
+            task.latest_memory_mb = None
+            task.failure_reason = failure_reason
+            event_type = "retry_scheduled"
+            message = (
+                f"Attempt failed ({failure_reason}); requeued as attempt "
+                f"{task.attempt} of {task.max_retries + 1}"
+            )
+            level = "warning"
+        else:
+            task.status = TaskStatus.FAILED.value
+            task.exit_code = exit_code
+            task.failure_reason = failure_reason or "unknown_error"
+            task.finished_at = now
+            event_type = "failed"
+            message = f"Training failed after {duration}s: {task.failure_reason}"
+            level = "error"
+
+        add_event(session, task.id, event_type, message, level=level)
+        session.flush()
+        if status is TaskStatus.SUCCEEDED:
+            self.log_store.append(
+                task.id,
+                f"[platform] SUCCEEDED · exit_code=0 · duration={duration}s · "
+                f"released {released} CPU core(s)",
+            )
+        elif retry:
+            self.log_store.append(
+                task.id,
+                f"[platform] attempt failed: {failure_reason} · requeuing "
+                f"(retry {task.retry_count}/{task.max_retries})",
+            )
+            self.log_store.append(task.id, "=" * 78)
+        else:
+            self.log_store.append(
+                task.id,
+                f"[platform] FAILED · exit_code={exit_code} · reason={task.failure_reason} "
+                f"· duration={duration}s · released {released} CPU core(s)",
+            )
+        self.broker.publish(
+            f"task.{event_type}",
+            task.id,
+            {
+                "status": task.status,
+                "exit_code": task.exit_code,
+                "failure_reason": task.failure_reason,
+                "retry": retry,
+            },
+        )
+        logger.info(
+            "task %s %s exit=%s reason=%s retry=%s",
+            task.id,
+            task.status,
+            task.exit_code,
+            task.failure_reason,
+            retry,
+        )
+        self.wake()
+
+    @staticmethod
+    def _retry_eligible(reason: str | None) -> bool:
+        if not reason:
+            return True
+        # Timeouts and explicit cancellation should not silently retry. Every
+        # other failure class (worker exception/non-zero exit, lost worker,
+        # launch error) is retried up to the task's configured attempt budget.
+        return reason not in {
+            "runtime_timeout",
+            "heartbeat_timeout",
+            "cancelled_by_user",
+        }
+
+    def _terminate(
+        self,
+        task: Task,
+        final_status: TaskStatus,
+        reason_code: str,
+        message: str,
+        *,
+        session,
+    ) -> None:
+        task_id = task.id
+        logger.warning("terminating task %s: %s", task_id, reason_code)
+        self.log_store.append(task_id, f"[platform] stopping task: {message}")
+        try:
+            self.execution.stop(task, reason=reason_code)
+        except Exception:
+            logger.exception("failed to stop executor for task %s", task_id)
+        self._finish(task, final_status, None, reason_code, session=session)
+
+    # --------------------------------------------------------------- operator
+    def cancel(self, task_id: str) -> CancelResponse:
+        with self._state_lock:
+            with self.db.session() as session:
+                task = session.get(Task, task_id)
+                if task is None:
+                    raise TaskNotFoundError(task_id)
+                if task.status in {item.value for item in TaskStatus if item.terminal}:
+                    raise TaskConflictError(f"Task is already {task.status}")
+                was_running = task.status == TaskStatus.RUNNING.value
+                if was_running:
+                    try:
+                        self.execution.stop(task, reason="user_cancelled")
+                    except Exception:
+                        logger.exception("failed to stop task %s during cancel", task_id)
+                task.cancel_requested_at = utcnow()
+                task.finished_at = task.finished_at or utcnow()
+                task.status = TaskStatus.CANCELLED.value
+                task.failure_reason = "cancelled_by_user"
+                task.exit_code = None
+                self.resources.release_allocation(session, task.id)
+                add_event(
+                    session,
+                    task.id,
+                    "cancelled",
+                    "Task cancelled by user"
+                    + ("; running worker was terminated" if was_running else "; task left the queue"),
+                    level="warning",
+                )
+                session.flush()
+                self.log_store.append(
+                    task.id,
+                    "[platform] CANCELLED by user"
+                    + (" — worker processes were terminated" if was_running else ""),
+                )
+                self.broker.publish(
+                    "task.cancelled",
+                    task.id,
+                    {"status": task.status, "was_running": was_running},
+                )
+                try:
+                    self.execution.cleanup(task)
+                except Exception:
+                    logger.exception("cleanup after cancel failed for %s", task.id)
+                output = self.tasks._to_schema(task)
+        self.wake()
+        return CancelResponse(task=output, message="Task cancelled")
+
+    def shutdown(self) -> None:
+        self.stop()
+
+    def health(self) -> dict[str, Any]:
+        return {
+            "running": bool(self._thread and self._thread.is_alive()),
+            "last_tick_at": self.last_tick_at.isoformat() if self.last_tick_at else None,
+            "last_error": self.last_error,
+            "started_at": self._started_at.isoformat(),
+        }
