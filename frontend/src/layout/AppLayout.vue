@@ -6,6 +6,8 @@ import {
   BellFilled,
   DataAnalysis,
   Document,
+  Expand,
+  Fold,
   FolderOpened,
   MagicStick,
   Menu as MenuIcon,
@@ -29,8 +31,24 @@ const { enabled: notificationsEnabled, setEnabled } = useNotifications()
 const mobileNavOpen = ref(false)
 const overview = ref<ClusterOverview | null>(null)
 const clock = ref(new Date().toLocaleTimeString('zh-CN', { hour12: false }))
+const SIDEBAR_KEY = 'litetrain.sidebar.collapsed'
+const sidebarCollapsed = ref(localStorage.getItem(SIDEBAR_KEY) === '1')
 let statusTimer: number | undefined
 let clockTimer: number | undefined
+
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+  localStorage.setItem(SIDEBAR_KEY, sidebarCollapsed.value ? '1' : '0')
+}
+
+function onShortcut(event: KeyboardEvent) {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) return
+  if (event.code !== 'Period') return
+  const target = event.target as HTMLElement | null
+  if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return
+  event.preventDefault()
+  toggleSidebar()
+}
 
 const navGroups = [
   {
@@ -101,6 +119,7 @@ onMounted(() => {
   clockTimer = window.setInterval(() => {
     clock.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
   }, 1000)
+  window.addEventListener('keydown', onShortcut)
 })
 
 watch(
@@ -111,11 +130,12 @@ watch(
 onBeforeUnmount(() => {
   if (statusTimer) window.clearInterval(statusTimer)
   if (clockTimer) window.clearInterval(clockTimer)
+  window.removeEventListener('keydown', onShortcut)
 })
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
     <aside class="sidebar" :class="{ open: mobileNavOpen }">
       <div class="brand" @click="navigate('overview')">
         <span class="brand-mark" aria-hidden="true">
@@ -125,7 +145,22 @@ onBeforeUnmount(() => {
           <strong>LiteTrain</strong>
           <small>CPU TRAINING LAB</small>
         </span>
-        <span class="brand-badge">2.2</span>
+        <el-tooltip
+          :content="sidebarCollapsed ? '展开侧栏 (Ctrl + .)' : '收起侧栏 (Ctrl + .)'"
+          placement="right"
+        >
+          <button
+            class="sidebar-toggle"
+            type="button"
+            :aria-label="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
+            @click.stop="toggleSidebar"
+          >
+            <el-icon>
+              <Expand v-if="sidebarCollapsed" />
+              <Fold v-else />
+            </el-icon>
+          </button>
+        </el-tooltip>
       </div>
 
       <div class="nav-block" v-for="group in navGroups" :key="group.label">
@@ -137,6 +172,8 @@ onBeforeUnmount(() => {
             type="button"
             class="nav-item"
             :class="{ active: isActive(item.name) }"
+            :title="sidebarCollapsed ? `${item.label} · ${item.caption}` : undefined"
+            :aria-label="item.label"
             @click="navigate(item.name)"
           >
             <span class="nav-icon">
@@ -203,11 +240,10 @@ onBeforeUnmount(() => {
           <span class="sidebar-doc-arrow">↗</span>
         </a>
         <div class="sidebar-signature">
-          <span class="mono">v2.2.0</span>
+          <span class="mono">v2.2.1</span>
           <span>CPU only · local first</span>
         </div>
-      </div>
-    </aside>
+      </div>    </aside>
 
     <div v-if="mobileNavOpen" class="nav-backdrop" @click="mobileNavOpen = false"></div>
 
@@ -292,7 +328,7 @@ onBeforeUnmount(() => {
       </main>
 
       <footer class="app-footer">
-        <span>LiteTrain 2.2 · CPU-only YOLO training control plane</span>
+        <span>LiteTrain 2.2.1 · CPU-only YOLO training control plane</span>
         <span class="mono">FastAPI · Redis · Ray · SQLite</span>
       </footer>
     </div>
@@ -1580,3 +1616,239 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
+<style scoped>
+/* Compact, collapsible navigation rail */
+.sidebar {
+  width: 228px;
+  padding: 20px 11px 14px;
+  transition:
+    width 0.24s var(--ease-out),
+    padding 0.24s var(--ease-out);
+}
+
+.brand {
+  gap: 8px;
+  padding: 2px 5px 20px;
+}
+
+.brand-copy strong {
+  font-size: 17.5px;
+}
+
+.brand-badge {
+  display: none;
+}
+
+.sidebar-toggle {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  flex: none;
+  place-items: center;
+  border: 1px solid rgba(102, 233, 182, 0.2);
+  border-radius: 8px;
+  background: rgba(63, 230, 169, 0.07);
+  color: #a4cdbb;
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.18s ease;
+}
+
+.sidebar-toggle .el-icon {
+  font-size: 14px;
+}
+
+.sidebar-toggle:hover {
+  border-color: rgba(87, 238, 181, 0.38);
+  background: rgba(63, 230, 169, 0.15);
+  color: #c1ffe8;
+  transform: translateX(1px);
+}
+
+.nav-item {
+  gap: 8px;
+  padding: 7px 8px;
+}
+
+.nav-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.nav-copy strong {
+  font-size: 11.5px;
+}
+
+.nav-copy small {
+  font-size: 7.5px;
+}
+
+.system-card {
+  padding: 12px 11px;
+}
+
+@media (min-width: 1001px) {
+  .app-shell.sidebar-collapsed .sidebar {
+    width: 82px;
+    padding: 16px 8px 12px;
+  }
+
+  .app-shell.sidebar-collapsed .brand {
+    justify-content: center;
+    gap: 5px;
+    padding: 2px 0 18px;
+  }
+
+  .app-shell.sidebar-collapsed .brand-copy,
+  .app-shell.sidebar-collapsed .brand-badge {
+    display: none;
+  }
+
+  .app-shell.sidebar-collapsed .brand-mark {
+    width: 29px;
+    height: 29px;
+    padding: 4px;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-toggle {
+    width: 26px;
+    height: 26px;
+    margin-left: 0;
+  }
+
+  .app-shell.sidebar-collapsed .brand::after {
+    right: 4px;
+    left: 4px;
+  }
+
+  .app-shell.sidebar-collapsed .nav-block {
+    margin-bottom: 10px;
+  }
+
+  .app-shell.sidebar-collapsed .nav-block + .nav-block {
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .app-shell.sidebar-collapsed .nav-label,
+  .app-shell.sidebar-collapsed .nav-copy,
+  .app-shell.sidebar-collapsed .nav-chevron {
+    display: none;
+  }
+
+  .app-shell.sidebar-collapsed .nav-item {
+    justify-content: center;
+    gap: 0;
+    padding: 6px;
+  }
+
+  .app-shell.sidebar-collapsed .nav-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .app-shell.sidebar-collapsed .nav-count {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 13px;
+    height: 13px;
+    padding: 0 3px;
+    border-radius: 4px;
+    font-size: 7px;
+    box-shadow: none;
+  }
+
+  .app-shell.sidebar-collapsed .nav-count.live {
+    box-shadow: none;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-spacer {
+    min-height: 8px;
+  }
+
+  .app-shell.sidebar-collapsed .system-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px 6px;
+    border-radius: 13px;
+  }
+
+  .app-shell.sidebar-collapsed .system-card-head,
+  .app-shell.sidebar-collapsed .system-row,
+  .app-shell.sidebar-collapsed .system-foot {
+    display: none;
+  }
+
+  .app-shell.sidebar-collapsed .system-cpu {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .app-shell.sidebar-collapsed .system-cpu-main {
+    align-items: center;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .app-shell.sidebar-collapsed .system-cpu-main strong {
+    font-size: 15px;
+  }
+
+  .app-shell.sidebar-collapsed .system-cpu-main span,
+  .app-shell.sidebar-collapsed .system-cpu-pct {
+    display: none;
+  }
+
+  .app-shell.sidebar-collapsed .system-meter {
+    width: 100%;
+    height: 2px;
+    margin: 6px 0 0;
+  }
+
+  .app-shell.sidebar-collapsed .system-aurora {
+    top: auto;
+    right: 50%;
+    bottom: -70px;
+    transform: translateX(50%);
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-bottom {
+    margin-top: 8px;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-doc {
+    justify-content: center;
+    padding: 8px 6px;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-doc span,
+  .app-shell.sidebar-collapsed .sidebar-doc-arrow,
+  .app-shell.sidebar-collapsed .sidebar-signature span:last-child {
+    display: none;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-signature {
+    justify-content: center;
+    padding: 8px 0 0;
+  }
+}
+
+@media (max-width: 1000px) {
+  .sidebar {
+    width: 250px;
+    padding: 22px 14px 14px;
+  }
+
+  .sidebar-toggle {
+    display: none;
+  }
+}
+</style>
+
