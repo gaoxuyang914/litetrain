@@ -1,0 +1,21 @@
+# LiteTrain backend (Python 3.11–3.13; tested on 3.13 / Windows 10)
+# Install CPU PyTorch first for the smallest download:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+sqlalchemy>=2.0,<3.0
+pydantic>=2.8,<3.0
+pydantic-settings>=2.4,<3.0
+redis>=5.0,<9.0
+psutil>=5.9,<8.0
+requests>=2.31,<3.0
+
+# Scheduler/execution. Ray 2.60 ships Windows cp313 wheels and a built-in
+# dashboard/job API; this project embeds Ray Core detached actors directly.
+ray[default]==2.60.0
+
+# CPU YOLO training
+ultralytics>=8.3,<9.0
+torch>=2.4
+torchvision>=0.19
+polars>=0.20

@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+backend/tests/.tmp/
+backend/test-tmp/
+backend/.testtmp/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+.pydeps/
+
+# Environment and secrets
+.env
+backend/.env
+frontend/.env.local
+
+# Runtime data (keep demo assets below)
+backend/data/platform.db
+backend/data/platform.db-*
+backend/data/logs/*
+!backend/data/logs/.gitkeep
+backend/data/runs/*
+!backend/data/runs/.gitkeep
+backend/data/.matplotlib/
+backend/data/datasets/**/*.cache
+backend/data/assets/*.zip
+.ultralytics/
+.runtime/
+*.log
+
+# Keep the YOLO demo weights and coco128 sample set in the repository so the
+# demo also works offline. Generated run artifacts and caches stay untracked.
+backend/data/datasets/**/*.cache
+pytest-cache-files-*
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+.npm-cache/
+*.tsbuildinfo
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Assets downloaded by helper scripts
+.wheels/
