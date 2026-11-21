@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.database import Database, utcnow
 from app.models import (
+    DatasetRecord,
+    Node,
     ResourceSample,
     Task,
     TaskEvent,
@@ -75,6 +77,20 @@ def add_event(
         created_at=utcnow(),
     )
     session.add(event)
+    task = session.get(Task, task_id)
+    if task is not None:
+        from app.services.webhooks import enqueue_task_event
+
+        external_type = {
+            "submitted": "task.submitted",
+            "scheduled": "task.running",
+            "recovered": "task.running",
+            "succeeded": "task.succeeded",
+            "failed": "task.failed",
+            "cancelled": "task.cancelled",
+            "retry_scheduled": "task.retry_scheduled",
+        }.get(event_type, f"task.{event_type}")
+        enqueue_task_event(session, task, external_type, message, level)
     return event
 
 
@@ -107,9 +123,20 @@ class TaskService:
         raise TaskValidationError("Unable to allocate a task id", 500)
 
     def _validate_request(self, payload: TaskCreate) -> tuple[Path, Path, str]:
-        if payload.cpu_cores > self.settings.total_cpus:
+        with self.db.session() as session:
+            max_node_cpus = int(
+                session.scalar(
+                    select(func.coalesce(func.max(Node.total_cpus), 0)).where(
+                        Node.status == "online"
+                    )
+                )
+                or 0
+            )
+        if max_node_cpus == 0:
+            raise TaskValidationError("no online node is available")
+        if payload.cpu_cores > max_node_cpus:
             raise TaskValidationError(
-                f"cpu_cores must be <= node capacity ({self.settings.total_cpus})"
+                f"cpu_cores must fit on a single node (largest online node: {max_node_cpus})"
             )
         if payload.cpu_cores > self.settings.user_cpu_quota:
             raise TaskValidationError(
@@ -202,6 +229,7 @@ class TaskService:
                 worker_token=secrets.token_urlsafe(32),
             )
             session.add(task)
+            session.flush()
             add_event(
                 session,
                 task.id,
@@ -332,10 +360,26 @@ class TaskService:
                 session.close()
 
     def options(self, execution_backend: str) -> TaskOptions:
-        default_cpu = min(self.settings.default_cpu_cores, self.settings.total_cpus)
+        with self.db.session() as session:
+            max_node_cpus = int(
+                session.scalar(
+                    select(func.coalesce(func.max(Node.total_cpus), 0)).where(
+                        Node.status == "online"
+                    )
+                )
+                or 0
+            )
+            deleted_yamls = {
+                Path(record.yaml_path).name
+                for record in session.scalars(
+                    select(DatasetRecord).where(DatasetRecord.status == "deleted")
+                ).all()
+            }
+        max_cpu = max(1, min(self.settings.user_cpu_quota, self.settings.total_cpus, max_node_cpus))
+        default_cpu = min(self.settings.default_cpu_cores, max_cpu)
         return TaskOptions(
             models=list_models(self.settings),
-            datasets=list_datasets(self.settings),
+            datasets=[item for item in list_datasets(self.settings) if item not in deleted_yamls],
             total_cpus=self.settings.total_cpus,
             user_cpu_quota=self.settings.user_cpu_quota,
             execution_backend=execution_backend,
@@ -355,7 +399,7 @@ class TaskService:
                 "epochs": [1, 50],
                 "imgsz": [64, 640],
                 "batch_size": [1, 64],
-                "cpu_cores": [1, min(self.settings.user_cpu_quota, self.settings.total_cpus)],
+                "cpu_cores": [1, max_cpu],
                 "priority": [0, 100],
                 "max_runtime_seconds": [10, self.settings.max_runtime_seconds_limit],
                 "max_retries": [0, 5],

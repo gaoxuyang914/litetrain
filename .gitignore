@@ -27,6 +27,9 @@ backend/data/runs/*
 !backend/data/runs/.gitkeep
 backend/data/.matplotlib/
 backend/data/datasets/**/*.cache
+backend/data/datasets/managed/
+backend/data/datasets/_archives/
+backend/data/datasets/pipelines/
 backend/data/assets/*.zip
 .ultralytics/
 .runtime/

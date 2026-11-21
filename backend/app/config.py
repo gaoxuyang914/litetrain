@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     default_dataset: str = "coco128.yaml"
     log_chunk_size: int = Field(default=65_536, ge=4_096, le=1_048_576)
 
+    # P2 pipeline + webhooks
+    pipeline_default_max_images: int = Field(default=24, ge=1, le=1024)
+    webhook_max_attempts: int = Field(default=4, ge=1, le=10)
+    webhook_retry_base_seconds: float = Field(default=2.0, ge=0.2, le=120.0)
+    webhook_timeout_seconds: float = Field(default=5.0, ge=1.0, le=60.0)
+    webhook_dispatcher_interval_seconds: float = Field(default=1.0, ge=0.2, le=30.0)
+
     @field_validator("user_cpu_quota")
     @classmethod
     def quota_within_cluster(cls, value: int, info) -> int:

@@ -15,6 +15,7 @@ import argparse
 import json
 import math
 import os
+import shutil
 import sys
 import threading
 import time
@@ -27,6 +28,7 @@ RESULT_ENV = "LITETRAIN_RESULT_PATH"
 TOKEN_ENV = "LITETRAIN_WORKER_TOKEN"
 API_ENV = "LITETRAIN_WORKER_API_BASE"
 INTERVAL_ENV = "LITETRAIN_HEARTBEAT_INTERVAL"
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 
 
 def _utc_iso() -> str:
@@ -212,19 +214,225 @@ def _ensure_ultralytics_font() -> None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="LiteTrain YOLO CPU worker")
+    parser = argparse.ArgumentParser(description="LiteTrain CPU YOLO worker")
+    parser.add_argument("--kind", choices=("train", "preprocess", "evaluate"), default="train")
     parser.add_argument("--task-id", required=True)
-    parser.add_argument("--model", required=True)
-    parser.add_argument("--data", required=True)
+    parser.add_argument("--model", default=None)
+    parser.add_argument("--data", default=None)
+    parser.add_argument("--source-data", default=None)
+    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--weights", default=None)
+    parser.add_argument("--max-images", type=int, default=24)
+    parser.add_argument("--pipeline-id", default=None)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--imgsz", type=int, default=160)
     parser.add_argument("--batch", type=int, default=4)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--cpu-cores", type=int, default=4)
-    parser.add_argument("--project", required=True)
-    parser.add_argument("--name", required=True)
+    parser.add_argument("--project", default=None)
+    parser.add_argument("--name", default=None)
     return parser.parse_args(argv)
+
+
+def _resolve_dataset_root(data_path: Path, data: dict[str, Any]) -> Path:
+    raw = data.get("path")
+    candidates: list[Path] = []
+    if raw:
+        root_candidate = Path(str(raw))
+        if root_candidate.is_absolute():
+            candidates.append(root_candidate)
+        else:
+            candidates.extend([Path.cwd() / root_candidate, data_path.parent / root_candidate])
+    candidates.append(data_path.parent)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    return data_path.parent.resolve()
+
+
+def _split_images(root: Path, value: Any) -> list[Path]:
+    images: list[Path] = []
+    values = value if isinstance(value, list) else [value]
+    for item in values:
+        if not item:
+            continue
+        candidate = Path(str(item))
+        if not candidate.is_absolute():
+            candidate = (root / candidate).resolve()
+        if candidate.is_file() and candidate.suffix.lower() == ".txt":
+            for line in candidate.read_text(encoding="utf-8", errors="ignore").splitlines():
+                path = Path(line.strip())
+                if path and path.is_file():
+                    images.append(path)
+        elif candidate.is_dir():
+            images.extend(
+                path
+                for path in sorted(candidate.rglob("*"))
+                if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
+            )
+        elif candidate.is_file() and candidate.suffix.lower() in IMAGE_SUFFIXES:
+            images.append(candidate)
+    return images
+
+
+def _label_for_image(image: Path, root: Path) -> Path | None:
+    parts = list(image.parts)
+    if "images" in parts:
+        idx = len(parts) - 1 - parts[::-1].index("images")
+        parts[idx] = "labels"
+        candidate = Path(*parts).with_suffix(".txt")
+        if candidate.exists():
+            return candidate
+    # Fallback: sibling labels directory at the dataset root.
+    relative = image.relative_to(root) if root in image.parents else Path(image.name)
+    haystack = list(relative.parts)
+    if "images" in haystack:
+        haystack[haystack.index("images")] = "labels"
+        candidate = (root / Path(*haystack)).with_suffix(".txt")
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def run_preprocess(args: argparse.Namespace, state: ProgressState, client: ControlPlaneClient) -> dict[str, float]:
+    import yaml
+
+    if not args.source_data:
+        raise ValueError("--source-data is required for preprocess")
+    if not args.output_dir:
+        raise ValueError("--output-dir is required for preprocess")
+    source_yaml = Path(args.source_data)
+    if not source_yaml.is_file():
+        raise FileNotFoundError(f"source dataset yaml not found: {source_yaml}")
+    with source_yaml.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    if not isinstance(data, dict):
+        raise ValueError("source dataset YAML must be a mapping")
+    root = _resolve_dataset_root(source_yaml, data)
+    names = data.get("names") or []
+    output = Path(args.output_dir)
+    if output.exists():
+        shutil.rmtree(output)
+    for split in ("train", "val"):
+        (output / "images" / split).mkdir(parents=True, exist_ok=True)
+        (output / "labels" / split).mkdir(parents=True, exist_ok=True)
+    state.update(5.0, "validating source dataset")
+    total_images = 0
+    total_labels = 0
+    split_counts: dict[str, int] = {}
+    for split in ("train", "val"):
+        source_split = data.get(split)
+        if split == "val":
+            source_split = source_split or data.get("validation")
+        images = _split_images(root, source_split)
+        if not images and split == "train":
+            raise ValueError(f"no images found for split 'train' under {root}")
+        if not images:
+            images = _split_images(root, data.get("train"))
+        limit = max(1, int(args.max_images))
+        copied = 0
+        labels_copied = 0
+        for image in images[:limit]:
+            label = _label_for_image(image, root)
+            target_name = image.name
+            destination = output / "images" / split / target_name
+            if destination.exists():
+                destination = output / "images" / split / f"{copied:04d}_{target_name}"
+            shutil.copy2(image, destination)
+            if label is not None:
+                label_target = output / "labels" / split / destination.with_suffix(".txt").name
+                shutil.copy2(label, label_target)
+                labels_copied += 1
+            copied += 1
+            total_images += 1
+        total_labels += labels_copied
+        split_counts[split] = copied
+        state.update(40.0 if split == "train" else 80.0, f"copied {copied} {split} images")
+        print(f"[preprocess] {split}: copied {copied} images, {labels_copied} labels", flush=True)
+    generated = {
+        "path": output.resolve().as_posix(),
+        "train": "images/train",
+        "val": "images/val",
+        "names": names,
+    }
+    output.mkdir(parents=True, exist_ok=True)
+    yaml_path = output / "dataset.yaml"
+    with yaml_path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(generated, handle, allow_unicode=True, sort_keys=False)
+    manifest = {
+        "source_dataset": str(source_yaml),
+        "dataset_yaml": str(yaml_path),
+        "images": total_images,
+        "labels": total_labels,
+        "splits": split_counts,
+        "classes": len(names) if isinstance(names, (list, dict)) else 0,
+    }
+    (output / "preprocess.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    metrics = {
+        "data/images": float(total_images),
+        "data/labels": float(total_labels),
+        "data/classes": float(manifest["classes"]),
+    }
+    try:
+        client.metrics({"epoch": 1, "step": 1, "values": metrics, "progress": 100})
+    except Exception:
+        pass
+    state.update(100.0, "preprocess complete")
+    print(f"[preprocess] completed: {total_images} images -> {yaml_path}", flush=True)
+    return metrics
+
+
+def run_evaluation(
+    args: argparse.Namespace, state: ProgressState, client: ControlPlaneClient
+) -> dict[str, float]:
+    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+    os.environ.setdefault("OMP_NUM_THREADS", str(max(1, args.cpu_cores)))
+    os.environ.setdefault("MKL_NUM_THREADS", str(max(1, args.cpu_cores)))
+    _ensure_ultralytics_font()
+    from ultralytics import YOLO
+    import torch
+
+    torch.set_num_threads(max(1, min(args.cpu_cores, os.cpu_count() or args.cpu_cores)))
+    if not args.weights or not Path(args.weights).is_file():
+        raise FileNotFoundError(f"weights not found: {args.weights}")
+    if not args.data or not Path(args.data).is_file():
+        raise FileNotFoundError(f"dataset yaml not found: {args.data}")
+    state.update(5.0, "loading best weights")
+    print(f"[evaluate] loading {args.weights}", flush=True)
+    model = YOLO(args.weights, task="detect")
+    state.update(15.0, "evaluating validation split")
+    results = model.val(
+        data=args.data,
+        imgsz=args.imgsz,
+        batch=args.batch,
+        device="cpu",
+        workers=0,
+        plots=False,
+        project=args.project,
+        name=args.name or args.task_id,
+        verbose=True,
+    )
+    raw = dict(getattr(results, "results_dict", {}) or {})
+    metrics = {
+        str(key): float(value)
+        for key, value in raw.items()
+        if isinstance(value, (int, float)) and math.isfinite(float(value))
+    }
+    if metrics:
+        try:
+            client.metrics({"epoch": 1, "step": 1, "values": metrics, "progress": 100})
+        except Exception:
+            pass
+    state.update(100.0, "evaluation complete")
+    print(
+        "[evaluate] " + ", ".join(f"{key}={value:.4f}" for key, value in sorted(metrics.items())),
+        flush=True,
+    )
+    return metrics
+
 
 
 def run_training(args: argparse.Namespace, state: ProgressState, client: ControlPlaneClient) -> dict[str, float]:
@@ -239,9 +447,9 @@ def run_training(args: argparse.Namespace, state: ProgressState, client: Control
 
     torch.set_num_threads(max(1, min(args.cpu_cores, os.cpu_count() or args.cpu_cores)))
 
-    if not Path(args.model).is_file():
+    if not args.model or not Path(args.model).is_file():
         raise FileNotFoundError(f"model checkpoint not found: {args.model}")
-    if not Path(args.data).is_file():
+    if not args.data or not Path(args.data).is_file():
         raise FileNotFoundError(f"dataset yaml not found: {args.data}")
 
     print(
@@ -352,23 +560,29 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"[platform] worker ready pid={os.getpid()} python={sys.executable} "
-        f"task={args.task_id}",
+        f"task={args.task_id} kind={args.kind}",
         flush=True,
     )
     exit_code = 0
     error: str | None = None
     metrics: dict[str, float] = {}
+    runner = {
+        "preprocess": run_preprocess,
+        "evaluate": run_evaluation,
+        "train": run_training,
+    }[args.kind]
     try:
-        metrics = run_training(args, state, client)
+        metrics = runner(args, state, client)
     except BaseException as exc:  # noqa: BLE001 - write a durable failure record
         exit_code = 1
         error = f"{type(exc).__name__}: {exc}"
-        print("[platform] training failed", flush=True)
+        print(f"[platform] {args.kind} failed", flush=True)
         traceback.print_exc()
     finally:
         reporter.stop()
         payload = {
             "task_id": args.task_id,
+            "kind": args.kind,
             "exit_code": exit_code,
             "error": error,
             "started_at": datetime.fromtimestamp(started, tz=timezone.utc).isoformat(),

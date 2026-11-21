@@ -7,7 +7,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import delete, select
 
@@ -26,6 +26,9 @@ from app.services.executors import ExecutionManager
 from app.services.logs import LogStore
 from app.services.resources import ResourceService
 from app.services.tasks import TaskNotFoundError, TaskService, add_event, runtime_seconds
+
+if TYPE_CHECKING:
+    from app.services.pipelines import PipelineService
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +52,7 @@ class Scheduler:
         resources: ResourceService,
         execution: ExecutionManager,
         tasks: TaskService,
+        pipelines: PipelineService | None = None,
     ) -> None:
         self.settings = settings
         self.db = db
@@ -57,6 +61,7 @@ class Scheduler:
         self.resources = resources
         self.execution = execution
         self.tasks = tasks
+        self.pipelines = pipelines
         self._state_lock = threading.RLock()
         self._stop_event = threading.Event()
         self._wake_event = threading.Event()
@@ -175,6 +180,8 @@ class Scheduler:
                 return
             with self._state_lock:
                 self._watch_running()
+                if self.pipelines is not None:
+                    self.pipelines.advance()
                 self._schedule_pending()
             self.last_tick_at = utcnow()
 
@@ -272,8 +279,11 @@ class Scheduler:
                 task = session.get(Task, task_id)
                 if task is None or task.status != TaskStatus.PENDING.value:
                     continue
-                if not self.resources.available_for(session, task.owner, task.cpu_cores):
+                node = self.resources.choose_node(session, task.owner, task.cpu_cores)
+                if node is None:
                     continue
+                node_id = node.id
+                node_name = node.name
                 # Atomic claim inside this SQLite write transaction.
                 task.status = TaskStatus.RUNNING.value
                 task.started_at = utcnow()
@@ -291,19 +301,19 @@ class Scheduler:
                 task.ray_actor_name = (
                     self.execution.actor_name(task) if self.execution.backend == "ray" else None
                 )
-                self.resources.create_allocation(session, task)
+                self.resources.create_allocation(session, task, node)
                 add_event(
                     session,
                     task.id,
                     "scheduled",
-                    f"Allocated {task.cpu_cores} CPU core(s) on {self.settings.node_id}",
+                    f"Allocated {task.cpu_cores} CPU core(s) on {node_name} ({node_id})",
                 )
                 session.flush()
                 claimed_task = task
 
             self.log_store.append(
                 claimed_task.id,
-                f"[platform] starting · {claimed_task.cpu_cores} CPU core(s) · "
+                f"[platform] starting · {claimed_task.cpu_cores} CPU core(s) on {node_name} · "
                 f"priority {claimed_task.priority} · attempt {claimed_task.attempt} "
                 f"· executor {self.execution.backend}",
             )
@@ -543,6 +553,31 @@ class Scheduler:
 
     def shutdown(self) -> None:
         self.stop()
+
+    # ------------------------------------------------------------- P2 controls
+    def apply_node_topology(self, topology: list[tuple[str, int]]):
+        with self._state_lock:
+            nodes = self.resources.apply_topology(topology)
+            self.wake()
+            return nodes
+
+    def set_node_status(self, node_id: str, status: str):
+        with self._state_lock:
+            node = self.resources.set_node_status(node_id, status)
+            self.wake()
+            return node
+
+    def cancel_pipeline(self, pipeline_id: str):
+        if self.pipelines is None:
+            raise RuntimeError("pipeline service is not configured")
+        with self._state_lock:
+            active_task_id = self.pipelines.active_task_id(pipeline_id)
+            if active_task_id:
+                try:
+                    self.cancel(active_task_id)
+                except TaskConflictError:
+                    pass
+            return self.pipelines.mark_cancelled(pipeline_id)
 
     def health(self) -> dict[str, Any]:
         return {

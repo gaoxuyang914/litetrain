@@ -6,6 +6,7 @@ import enum
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -178,3 +179,132 @@ class TaskEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
 
     __table_args__ = (Index("ix_task_events_task_created", "task_id", "created_at"),)
+
+
+# ---------------------------------------------------------------------------
+# P2: dataset registry, plans/pipelines, artifacts and webhook outbox
+# ---------------------------------------------------------------------------
+
+
+class DatasetRecord(Base):
+    __tablename__ = "datasets"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    version: Mapped[str] = mapped_column(String(40), nullable=False, default="v1")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    yaml_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    archive_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    image_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    label_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    class_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="ready")
+    is_builtin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("name", "version", name="uq_dataset_name_version"),
+        Index("ix_datasets_created", "created_at"),
+    )
+
+
+class Pipeline(Base):
+    __tablename__ = "pipelines"
+
+    id: Mapped[str] = mapped_column(String(24), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    owner: Mapped[str] = mapped_column(String(64), nullable=False, default="demo")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default=TaskStatus.PENDING.value, index=True)
+    config_json: Mapped[str] = mapped_column(Text, nullable=False)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (Index("ix_pipelines_status_submitted", "status", "submitted_at"),)
+
+
+class PipelineStage(Base):
+    __tablename__ = "pipeline_stages"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    pipeline_id: Mapped[str] = mapped_column(
+        String(24), ForeignKey("pipelines.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    stage_key: Mapped[str] = mapped_column(String(24), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="waiting")
+    task_id: Mapped[str | None] = mapped_column(
+        String(24), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, unique=True
+    )
+    config_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("pipeline_id", "stage_key", name="uq_pipeline_stage_key"),
+        Index("ix_pipeline_stages_pipeline_sequence", "pipeline_id", "sequence"),
+    )
+
+
+class Artifact(Base):
+    __tablename__ = "artifacts"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    task_id: Mapped[str] = mapped_column(
+        String(24), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    pipeline_id: Mapped[str | None] = mapped_column(
+        String(24), ForeignKey("pipelines.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(24), nullable=False, default="model", index=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    path: Mapped[str] = mapped_column(String(512), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("path", name="uq_artifact_path"),
+        Index("ix_artifacts_pipeline_created", "pipeline_id", "created_at"),
+    )
+
+
+class WebhookEndpoint(Base):
+    __tablename__ = "webhook_endpoints"
+
+    id: Mapped[str] = mapped_column(String(24), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    url: Mapped[str] = mapped_column(String(512), nullable=False)
+    secret: Mapped[str] = mapped_column(String(128), nullable=False)
+    events_json: Mapped[str] = mapped_column(Text, nullable=False, default='["*"]')
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
+class WebhookDelivery(Base):
+    __tablename__ = "webhook_deliveries"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    endpoint_id: Mapped[str] = mapped_column(
+        String(24), ForeignKey("webhook_endpoints.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    task_id: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    pipeline_id: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    response_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (
+        Index("ix_webhook_deliveries_pending", "status", "next_attempt_at"),
+    )

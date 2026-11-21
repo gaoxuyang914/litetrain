@@ -19,10 +19,12 @@ from pathlib import Path
 from typing import Any
 
 import psutil
+from sqlalchemy import select
 
 from app.config import BACKEND_DIR, Settings
-from app.models import Task
-from app.training.config import build_worker_command
+from app.database import Database
+from app.models import PipelineStage, Task
+from app.training.config import build_worker_command, resolve_dataset_path
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +96,9 @@ def _terminate_pid_tree(pid: int | None, create_time: float | None, timeout: flo
 
 
 class ExecutionManager:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, db: Database) -> None:
         self.settings = settings
+        self.db = db
         self.backend = "local"
         self.requested_mode = settings.execution_mode
         self.ray_connected = False
@@ -184,7 +187,75 @@ class ExecutionManager:
         )
         return env
 
+    def _stage_spec(self, task: Task) -> tuple[str, dict[str, Any]] | None:
+        with self.db.session() as session:
+            stage = session.scalar(select(PipelineStage).where(PipelineStage.task_id == task.id))
+            if stage is None:
+                return None
+            try:
+                config = json.loads(stage.config_json or "{}")
+            except json.JSONDecodeError:
+                config = {}
+            return stage.stage_key, config if isinstance(config, dict) else {}
+
     def _command(self, task: Task) -> list[str]:
+        stage = self._stage_spec(task)
+        python = self.settings.resolved_worker_python
+        if stage is not None and stage[0] == "preprocess":
+            _, config = stage
+            source = resolve_dataset_path(self.settings, task.dataset)
+            output_dir = config.get("output_dir")
+            if not output_dir:
+                pipeline_id = config.get("pipeline_id") or ""
+                output_dir = str(self.settings.datasets_dir / "pipelines" / pipeline_id)
+            return [
+                python,
+                "-m",
+                "app.training.worker",
+                "--kind",
+                "preprocess",
+                "--task-id",
+                task.id,
+                "--source-data",
+                str(source),
+                "--output-dir",
+                str(output_dir),
+                "--max-images",
+                str(config.get("max_images", self.settings.pipeline_default_max_images)),
+                "--cpu-cores",
+                str(task.cpu_cores),
+            ]
+        if stage is not None and stage[0] == "evaluate":
+            _, config = stage
+            weights = config.get("weights_path")
+            if not weights:
+                raise RuntimeError("evaluate stage is missing weights_path")
+            dataset = resolve_dataset_path(self.settings, task.dataset)
+            return [
+                python,
+                "-m",
+                "app.training.worker",
+                "--kind",
+                "evaluate",
+                "--task-id",
+                task.id,
+                "--weights",
+                str(weights),
+                "--data",
+                str(dataset),
+                "--imgsz",
+                str(task.imgsz),
+                "--batch",
+                str(task.batch_size),
+                "--workers",
+                str(task.workers),
+                "--cpu-cores",
+                str(task.cpu_cores),
+                "--project",
+                str(self.settings.runs_dir),
+                "--name",
+                task.id,
+            ]
         return build_worker_command(
             self.settings,
             task_id=task.id,

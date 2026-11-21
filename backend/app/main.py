@@ -13,9 +13,12 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
+from app.api.assets import artifacts_router, datasets_router
 from app.api.cluster import router as cluster_router
 from app.api.internal import router as internal_router
+from app.api.pipelines import router as pipelines_router
 from app.api.tasks import router as tasks_router
+from app.api.webhooks import router as webhooks_router
 from app.config import Settings, get_settings
 from app.context import AppContext
 
@@ -72,6 +75,7 @@ def create_app(
         ctx.initialize()
         if start_scheduler:
             ctx.scheduler.start()
+            ctx.webhook_dispatcher.start()
         logger.info(
             "ready · api=http://%s:%s · executor=%s · redis=%s",
             settings.host,
@@ -112,6 +116,10 @@ def create_app(
     app.include_router(tasks_router, prefix=prefix)
     app.include_router(cluster_router, prefix=prefix)
     app.include_router(internal_router, prefix=prefix)
+    app.include_router(pipelines_router, prefix=prefix)
+    app.include_router(datasets_router, prefix=prefix)
+    app.include_router(artifacts_router, prefix=prefix)
+    app.include_router(webhooks_router, prefix=prefix)
 
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> JSONResponse:

@@ -1,0 +1,118 @@
+"""Dataset registry and model artifact APIs."""
+
+from __future__ import annotations
+
+import uuid
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
+
+from app.api.deps import get_ctx
+from app.context import AppContext
+from app.schemas import (
+    ArtifactListResponse,
+    DatasetListResponse,
+    DatasetOut,
+)
+from app.services.datasets import DatasetError, MAX_UPLOAD_BYTES
+
+datasets_router = APIRouter(prefix="/datasets", tags=["datasets"])
+artifacts_router = APIRouter(prefix="/artifacts", tags=["artifacts"])
+
+
+@datasets_router.get("", response_model=DatasetListResponse, summary="Managed datasets")
+def list_datasets(ctx: AppContext = Depends(get_ctx)) -> DatasetListResponse:
+    items = ctx.datasets.list()
+    return DatasetListResponse(items=items, total=len(items))
+
+
+@datasets_router.post(
+    "/upload",
+    response_model=DatasetOut,
+    status_code=201,
+    summary="Upload a YOLO dataset zip archive",
+)
+async def upload_dataset(
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    version: str = Form("v1"),
+    description: str | None = Form(None),
+    ctx: AppContext = Depends(get_ctx),
+) -> DatasetOut:
+    if not file.filename or not file.filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=422, detail="dataset archive must be a .zip")
+    name = (name or "").strip()
+    version = (version or "v1").strip()
+    if not name or len(name) > 120:
+        raise HTTPException(status_code=422, detail="dataset name is required (max 120 chars)")
+    if not version or len(version) > 40:
+        raise HTTPException(status_code=422, detail="dataset version is required (max 40 chars)")
+    temporary = ctx.settings.tmp_dir / f"dataset-{uuid.uuid4().hex}.zip"
+    total = 0
+    try:
+        with temporary.open("wb") as handle:
+            while chunk := await file.read(1024 * 1024):
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="dataset archive exceeds 512 MB")
+                handle.write(chunk)
+        if total == 0:
+            raise HTTPException(status_code=422, detail="uploaded archive is empty")
+        return ctx.datasets.import_archive(
+            name=name,
+            version=version,
+            description=(description or "").strip() or None,
+            filename=file.filename,
+            source_path=temporary,
+        )
+    except DatasetError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    finally:
+        if temporary.exists():
+            temporary.unlink(missing_ok=True)
+
+
+@datasets_router.get("/{dataset_id}", response_model=DatasetOut, summary="Dataset detail")
+def get_dataset(dataset_id: str, ctx: AppContext = Depends(get_ctx)) -> DatasetOut:
+    try:
+        return ctx.datasets.get(dataset_id)
+    except DatasetError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@datasets_router.delete("/{dataset_id}", status_code=204, summary="Soft-delete a dataset")
+def delete_dataset(dataset_id: str, ctx: AppContext = Depends(get_ctx)) -> None:
+    try:
+        ctx.datasets.delete(dataset_id)
+    except DatasetError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@datasets_router.get("/{dataset_id}/download", summary="Download the original dataset archive")
+def download_dataset(dataset_id: str, ctx: AppContext = Depends(get_ctx)) -> FileResponse:
+    try:
+        path = ctx.datasets.download_archive(dataset_id)
+    except DatasetError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    return FileResponse(path, media_type="application/zip", filename=path.name)
+
+
+@artifacts_router.get("", response_model=ArtifactListResponse, summary="Model/result artifacts")
+def list_artifacts(
+    task_id: str | None = Query(default=None),
+    pipeline_id: str | None = Query(default=None),
+    kind: str | None = Query(default=None),
+    ctx: AppContext = Depends(get_ctx),
+) -> ArtifactListResponse:
+    items = ctx.artifacts.list(task_id=task_id, pipeline_id=pipeline_id, kind=kind)
+    return ArtifactListResponse(items=items, total=len(items))
+
+
+@artifacts_router.get("/{artifact_id}/download", summary="Download a model weight or result file")
+def download_artifact(artifact_id: str, ctx: AppContext = Depends(get_ctx)) -> FileResponse:
+    try:
+        path, filename = ctx.artifacts.get_file(artifact_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="artifact not found") from exc
+    media_type = "application/octet-stream" if path.suffix != ".csv" else "text/csv"
+    return FileResponse(path, media_type=media_type, filename=filename)

@@ -9,6 +9,7 @@ pydantic-settings>=2.4,<3.0
 redis>=5.0,<9.0
 psutil>=5.9,<8.0
 requests>=2.31,<3.0
+python-multipart>=0.0.9
 
 # Scheduler/execution. Ray 2.60 ships Windows cp313 wheels and a built-in
 # dashboard/job API; this project embeds Ray Core detached actors directly.

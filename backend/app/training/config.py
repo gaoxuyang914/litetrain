@@ -148,6 +148,15 @@ def list_models(settings: Settings) -> list[str]:
 
 def list_datasets(settings: Settings) -> list[str]:
     seen: set[str] = set()
-    for path in settings.datasets_dir.rglob("*.yaml"):
+    root = settings.datasets_dir
+    for path in root.rglob("*.yaml"):
+        try:
+            relative = path.relative_to(root)
+        except ValueError:
+            continue
+        # Pipeline-generated datasets are internal stage inputs, not user-selectable
+        # base datasets.
+        if relative.parts and relative.parts[0] == "pipelines":
+            continue
         seen.add(path.name)
     return sorted(seen)
