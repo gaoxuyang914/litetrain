@@ -125,6 +125,14 @@ class Settings(BaseSettings):
         return self.data_dir / "tmp"
 
     @property
+    def quality_dir(self) -> Path:
+        return self.data_dir / "quality"
+
+    @property
+    def benchmarks_dir(self) -> Path:
+        return self.data_dir / "benchmarks"
+
+    @property
     def cors_origin_list(self) -> list[str]:
         return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
 
@@ -142,6 +150,8 @@ class Settings(BaseSettings):
             self.assets_dir,
             self.matplotlib_dir,
             self.tmp_dir,
+            self.quality_dir,
+            self.benchmarks_dir,
             self.ultralytics_config_dir / "Ultralytics",
         ):
             path.mkdir(parents=True, exist_ok=True)

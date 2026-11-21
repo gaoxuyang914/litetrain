@@ -72,6 +72,19 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | 状态 Webhook | 注册 endpoint + 事件订阅；事务性 outbox；HMAC-SHA256 签名；指数退避重试；投递记录与手动测试 |
 | 新增 Web 页面 | `训练流水线`、`数据与产物`（数据集 / 产物 / Webhooks 三个 tab）；总览页增加多节点模拟和节点上下线操作 |
 
+### v2.4 数据与实验闭环（P0 优化）
+
+| 能力 | 实现 |
+| --- | --- |
+| 数据集质量体检 | 标签结构、坐标/类别、图片解码、缺失/孤儿标签、完全重复、train/val 泄漏、类别分布、小目标；严重问题阻断训练 |
+| 训练准入 | `quality_status` + 警告确认；任务创建和流水线创建都会校验数据集 |
+| CPU Benchmark | 短周期实测 threads / workers，记录 images/s、耗时、峰值 RSS；结果持久化并返回推荐 profile |
+| Checkpoint / Resume | 每轮保存 checkpoint、任务详情可查看；失败/取消后可人工从最近 checkpoint 创建新任务 |
+| Run Manifest | 每次新任务记录数据哈希、模型哈希、配置、seed、Python/PyTorch/Ultralytics、Git 与主机信息 |
+| 实验对比 | 任务列表选择 2–4 个任务，对比配置、数据集、mAP、耗时和峰值内存 |
+
+> 本轮迁移使用 SQLite 可重复执行的加列迁移；旧的 `platform.db` 升级前已备份。P1/P2 的早停、错误分析、ONNX 和量化仍按路线图推进。
+
 ### 额外实现
 
 - **SSE 实时日志**：`GET /api/v1/tasks/{id}/logs/stream?offset=...`。
@@ -115,9 +128,9 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 ![Webhook](docs/screenshots/webhooks.png)
 
-更多截图：任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)。
+更多截图：任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)。
 
-> 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.3 Operations Ledger**：纸面工作区、深色导航栏、实时集群拓扑和任务 cockpit；字号、对比度、焦点和 reduced-motion 均按 `deepseek-frontend-design` 技能自检。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
+> 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.4 Operations Ledger**：纸面工作区、深色导航栏、实时集群拓扑、数据质量准入和运行清单；字号、对比度、焦点和 reduced-motion 均按 `deepseek-frontend-design` 技能自检。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
 
 ---
 

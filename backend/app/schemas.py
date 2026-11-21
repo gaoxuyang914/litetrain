@@ -35,11 +35,20 @@ class TaskCreate(BaseModel):
     name: str = Field(default="", max_length=100)
     model: str = Field(default="yolov8n.pt", min_length=1, max_length=160, pattern=r"^[A-Za-z0-9._\-/]+\.pt$")
     dataset: str = Field(default="coco128.yaml", min_length=1, max_length=240, pattern=r"^[A-Za-z0-9._\-/]+\.yaml$")
+    dataset_id: str | None = Field(default=None, max_length=32)
+    quality_ack: bool = False
     epochs: int = Field(default=3, ge=1, le=50)
     imgsz: int = Field(default=160, ge=64, le=640)
     batch_size: int = Field(default=4, ge=1, le=64)
     workers: int = Field(default=0, ge=0, le=8)
     cpu_cores: int = Field(default=4, ge=1, le=128)
+    compute_threads: int | None = Field(default=None, ge=1, le=128)
+    cache_mode: str = Field(default="none", pattern=r"^(none|disk|ram)$")
+    seed: int = Field(default=0, ge=0, le=2_147_483_647)
+    patience: int | None = Field(default=None, ge=0, le=500)
+    save_period: int = Field(default=5, ge=0, le=100)
+    resume_from_task_id: str | None = Field(default=None, max_length=24)
+    resume_mode: str | None = Field(default=None, pattern=r"^(full|weights)$")
     priority: int = Field(default=50, ge=0, le=100)
     max_runtime_seconds: int = Field(default=1800, ge=10, le=604_800)
     max_retries: int = Field(default=0, ge=0, le=5)
@@ -65,6 +74,14 @@ class TaskCreate(BaseModel):
             return None
         return value.strip() or None
 
+    @field_validator("compute_threads")
+    @classmethod
+    def validate_threads(cls, value: int | None, info) -> int | None:
+        cores = info.data.get("cpu_cores")
+        if value is not None and cores is not None and value > cores:
+            raise ValueError("compute_threads must be <= cpu_cores")
+        return value
+
 
 class TaskOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -77,6 +94,8 @@ class TaskOut(BaseModel):
 
     model: str
     dataset: str
+    dataset_id: str | None = None
+    dataset_sha256: str | None = None
     epochs: int
     imgsz: int
     batch_size: int
@@ -86,6 +105,15 @@ class TaskOut(BaseModel):
     notes: str | None = None
 
     cpu_cores: int
+    compute_threads: int | None = None
+    cache_mode: str = "none"
+    seed: int = 0
+    patience: int | None = None
+    save_period: int = 5
+    resume_from_task_id: str | None = None
+    resume_mode: str | None = None
+    checkpoint_epoch: int | None = None
+    stop_reason: str | None = None
     max_runtime_seconds: int
     max_retries: int
     retry_count: int
@@ -188,6 +216,97 @@ class TaskMetricsResponse(BaseModel):
     series: list[MetricSeries]
     resources: list[ResourcePoint]
     final_metrics: dict[str, float] = Field(default_factory=dict)
+
+
+class TaskCheckpointOut(BaseModel):
+    epoch: int
+    path: str
+    size_bytes: int
+    metrics: dict[str, float] = Field(default_factory=dict)
+    is_best: bool = False
+    created_at: UtcDateTime
+
+
+class TaskCheckpointListResponse(BaseModel):
+    items: list[TaskCheckpointOut]
+    total: int
+
+
+class ResumeTaskRequest(BaseModel):
+    mode: str = Field(default="full", pattern=r"^(full|weights)$")
+
+
+class CheckpointIngestRequest(BaseModel):
+    epoch: int = Field(ge=0, le=100_000)
+    path: str = Field(min_length=1, max_length=512)
+    size_bytes: int = Field(default=0, ge=0)
+    metrics: dict[str, float] = Field(default_factory=dict)
+    is_best: bool = False
+
+
+class CheckpointIngestResponse(BaseModel):
+    accepted: bool
+    checkpoint_id: int
+
+
+class RunManifestOut(BaseModel):
+    task_id: str
+    manifest: dict
+    dataset_sha256: str | None = None
+    model_sha256: str | None = None
+    git_commit: str | None = None
+    created_at: OptionalUtcDateTime = None
+
+
+class TaskCompareItem(BaseModel):
+    task_id: str
+    name: str
+    status: str
+    dataset_id: str | None = None
+    dataset_sha256: str | None = None
+    config: dict = Field(default_factory=dict)
+    final_metrics: dict[str, float] = Field(default_factory=dict)
+    runtime_seconds: int = 0
+    peak_memory_mb: float | None = None
+    manifest: dict | None = None
+
+
+class TaskCompareResponse(BaseModel):
+    compatible: bool
+    reason: str | None = None
+    items: list[TaskCompareItem]
+    metric_deltas: dict[str, float] = Field(default_factory=dict)
+
+
+class BenchmarkCreate(BaseModel):
+    dataset: str = Field(default="coco128.yaml", min_length=1, max_length=240)
+    model: str = Field(default="yolov8n.pt", min_length=1, max_length=160)
+    imgsz: int = Field(default=160, ge=64, le=640)
+    batch: int = Field(default=4, ge=1, le=64)
+    threads: list[int] = Field(default_factory=lambda: [4, 8], max_length=8)
+    workers: list[int] = Field(default_factory=lambda: [0], max_length=4)
+    epochs: int = Field(default=1, ge=1, le=2)
+
+    @field_validator("threads", "workers")
+    @classmethod
+    def positive_ints(cls, values: list[int]) -> list[int]:
+        cleaned = sorted({max(0, int(value)) for value in values})
+        if not cleaned:
+            raise ValueError("at least one value is required")
+        return cleaned
+
+
+class BenchmarkOut(BaseModel):
+    id: str
+    status: str
+    dataset: str | None = None
+    host: dict = Field(default_factory=dict)
+    matrix: dict = Field(default_factory=dict)
+    selected: dict | None = None
+    log_path: str | None = None
+    error: str | None = None
+    created_at: UtcDateTime
+    finished_at: OptionalUtcDateTime = None
 
 
 class HeartbeatPayload(BaseModel):
@@ -357,11 +476,15 @@ class DatasetOut(BaseModel):
     description: str | None = None
     yaml_path: str
     source_filename: str | None = None
+    content_sha256: str | None = None
     image_count: int
     label_count: int
     class_count: int
     size_bytes: int
     status: str
+    quality_status: str = "pending"
+    quality_score: float | None = None
+    quality_acknowledged: bool = False
     is_builtin: bool
     created_at: UtcDateTime
 
@@ -369,6 +492,29 @@ class DatasetOut(BaseModel):
 class DatasetListResponse(BaseModel):
     items: list[DatasetOut]
     total: int
+
+
+class QualityIssueOut(BaseModel):
+    code: str
+    severity: str
+    message: str
+    count: int = 0
+    examples: list[str] = Field(default_factory=list)
+
+
+class DatasetQualityOut(BaseModel):
+    dataset_id: str
+    status: str
+    score: float | None = None
+    engine_version: str | None = None
+    checked_at: OptionalUtcDateTime = None
+    summary: dict = Field(default_factory=dict)
+    issues: list[QualityIssueOut] = Field(default_factory=list)
+    report_url: str | None = None
+
+
+class DatasetQualityAck(BaseModel):
+    note: str | None = Field(default=None, max_length=500)
 
 
 class ArtifactOut(BaseModel):

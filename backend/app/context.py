@@ -9,11 +9,13 @@ from datetime import datetime
 from app.config import Settings
 from app.database import Database, utcnow
 from app.services.artifacts import ArtifactService
+from app.services.benchmark import BenchmarkService
 from app.services.datasets import DatasetService
 from app.services.event_bus import EventBroker
 from app.services.executors import ExecutionManager
 from app.services.logs import LogStore
 from app.services.pipelines import PipelineService
+from app.services.quality import DatasetQualityService
 from app.services.resources import ResourceService
 from app.services.scheduler import Scheduler
 from app.services.tasks import TaskService
@@ -37,6 +39,8 @@ class AppContext:
     tasks: TaskService
     scheduler: Scheduler
     datasets: DatasetService
+    quality: DatasetQualityService
+    benchmark: BenchmarkService
     artifacts: ArtifactService
     pipelines: PipelineService
     webhooks: WebhookService
@@ -56,9 +60,11 @@ class AppContext:
         )
         resources = ResourceService(settings, db)
         execution = ExecutionManager(settings, db)
-        tasks = TaskService(settings, db, log_store, broker)
         datasets = DatasetService(settings, db)
+        quality = DatasetQualityService(settings, db, datasets)
+        tasks = TaskService(settings, db, log_store, broker, datasets=datasets, quality=quality)
         artifacts = ArtifactService(settings, db)
+        benchmark = BenchmarkService(settings, db)
         pipelines = PipelineService(settings, db, log_store, broker, artifacts)
         webhooks = WebhookService(settings, db)
         configure_max_attempts(settings.webhook_max_attempts)
@@ -77,6 +83,8 @@ class AppContext:
             tasks=tasks,
             scheduler=scheduler,
             datasets=datasets,
+            quality=quality,
+            benchmark=benchmark,
             artifacts=artifacts,
             pipelines=pipelines,
             webhooks=webhooks,
@@ -90,6 +98,8 @@ class AppContext:
         self.execution.connect()
         self.resources.ensure_node()
         self.datasets.seed_builtin()
+        self.quality.recover()
+        self.benchmark.recover()
         self.scheduler.recover()
         self.scheduler.pipelines = self.pipelines
 
@@ -102,6 +112,14 @@ class AppContext:
             self.webhook_dispatcher.stop()
         except Exception:
             logger.exception("webhook dispatcher shutdown failed")
+        try:
+            self.quality.stop()
+        except Exception:
+            logger.exception("dataset quality shutdown failed")
+        try:
+            self.benchmark.stop()
+        except Exception:
+            logger.exception("benchmark shutdown failed")
         self.execution.shutdown()
         self.broker.close()
         self.db.dispose()

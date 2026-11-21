@@ -16,7 +16,7 @@ import { ElMessage } from 'element-plus'
 
 import { api } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge.vue'
-import type { NodeTopologyItem } from '@/types/p2'
+import type { BenchmarkRun, NodeTopologyItem } from '@/types/p2'
 import type { ClusterOverview, Task } from '@/types/task'
 import {
   formatDuration,
@@ -35,6 +35,11 @@ const topologyOpen = ref(false)
 const topologyBusy = ref(false)
 const topologyDraft = ref<NodeTopologyItem[]>([])
 const nodeActionBusy = ref<string | null>(null)
+const benchmarkOpen = ref(false)
+const benchmarkBusy = ref(false)
+const benchmark = ref<BenchmarkRun | null>(null)
+const benchmarkForm = ref({ threads: '4,8', workers: '0', imgsz: 160, batch: 4 })
+let benchmarkTimer: number | undefined
 let timer: number | undefined
 
 const cpu = computed(() => overview.value?.cpu)
@@ -106,6 +111,73 @@ function openTopologyDialog() {
     ]
   }
   topologyOpen.value = true
+}
+
+async function openBenchmark() {
+  benchmarkOpen.value = true
+  try {
+    benchmark.value = await api.latestBenchmark()
+    if (benchmark.value && ['queued', 'running'].includes(benchmark.value.status)) {
+      pollBenchmark()
+    }
+  } catch {
+    benchmark.value = null
+  }
+}
+
+function pollBenchmark() {
+  if (benchmarkTimer) window.clearTimeout(benchmarkTimer)
+  benchmarkTimer = window.setTimeout(async () => {
+    if (!benchmark.value) return
+    try {
+      benchmark.value = await api.getBenchmark(benchmark.value.id)
+      if (['queued', 'running'].includes(benchmark.value.status)) pollBenchmark()
+    } catch {
+      // Keep the last snapshot.
+    }
+  }, 1800)
+}
+
+async function startBenchmark() {
+  const threads = benchmarkForm.value.threads
+    .split(',')
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isFinite(value) && value > 0)
+  const workers = benchmarkForm.value.workers
+    .split(',')
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isFinite(value) && value >= 0)
+  if (!threads.length) {
+    ElMessage.warning('至少填写一个计算线程数')
+    return
+  }
+  benchmarkBusy.value = true
+  try {
+    benchmark.value = await api.startBenchmark({
+      dataset: 'coco128.yaml',
+      model: 'yolov8n.pt',
+      imgsz: benchmarkForm.value.imgsz,
+      batch: benchmarkForm.value.batch,
+      threads,
+      workers,
+      epochs: 1,
+    })
+    pollBenchmark()
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '启动 Benchmark 失败')
+  } finally {
+    benchmarkBusy.value = false
+  }
+}
+
+const benchmarkResults = computed(() => benchmark.value?.matrix.results ?? [])
+const benchmarkSelected = computed(() => benchmark.value?.selected ?? null)
+
+function benchValue(row: Record<string, unknown>, key: string): string {
+  const value = row[key]
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2)
+  if (typeof value === 'string') return value
+  return '—'
 }
 
 function addTopologyRow() {
@@ -187,6 +259,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (timer) window.clearInterval(timer)
+  if (benchmarkTimer) window.clearTimeout(benchmarkTimer)
 })
 </script>
 
@@ -210,6 +283,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="page-actions">
+        <el-button :icon="Cpu" @click="openBenchmark">CPU 自动调优</el-button>
         <button class="sync-chip" type="button" :class="{ spinning: refreshing }" @click="load(true)">
           <el-icon><Refresh /></el-icon>
           <span>已同步 {{ lastSync }}</span>
@@ -589,6 +663,58 @@ onBeforeUnmount(() => {
             应用拓扑
           </el-button>
         </template>
+      </el-dialog>
+
+      <el-dialog v-model="benchmarkOpen" title="CPU 自动调优" width="760px">
+        <p class="benchmark-intro">
+          Benchmark 用 1 个 epoch 测量吞吐、峰值内存和耗时，不会占用训练队列。训练进行中时不可启动。
+        </p>
+        <div class="benchmark-form">
+          <el-input v-model="benchmarkForm.threads" placeholder="线程，如 4,8" />
+          <el-input v-model="benchmarkForm.workers" placeholder="Workers，如 0" />
+          <el-input-number v-model="benchmarkForm.imgsz" :min="64" :max="640" :step="32" />
+          <el-input-number v-model="benchmarkForm.batch" :min="1" :max="64" />
+          <el-button type="primary" :loading="benchmarkBusy" @click="startBenchmark">开始测试</el-button>
+        </div>
+
+        <div v-if="benchmark" class="benchmark-status">
+          <span>状态：<strong>{{ benchmark.status }}</strong></span>
+          <span v-if="benchmark.error" class="benchmark-error">{{ benchmark.error }}</span>
+        </div>
+
+        <div v-if="benchmarkSelected" class="benchmark-selected">
+          推荐：threads {{ benchValue(benchmarkSelected, 'threads') }} / workers
+          {{ benchValue(benchmarkSelected, 'workers') }} /
+          {{ benchValue(benchmarkSelected, 'images_per_second') }} images/s
+        </div>
+
+        <el-table v-if="benchmarkResults.length" :data="benchmarkResults" class="benchmark-table">
+          <el-table-column label="线程" width="70">
+            <template #default="{ row }">{{ benchValue(row, 'threads') }}</template>
+          </el-table-column>
+          <el-table-column label="Workers" width="80">
+            <template #default="{ row }">{{ benchValue(row, 'workers') }}</template>
+          </el-table-column>
+          <el-table-column label="Images/s" width="100" align="right">
+            <template #default="{ row }">{{ benchValue(row, 'images_per_second') }}</template>
+          </el-table-column>
+          <el-table-column label="耗时" width="90" align="right">
+            <template #default="{ row }">{{ benchValue(row, 'elapsed_seconds') }}s</template>
+          </el-table-column>
+          <el-table-column label="峰值内存" width="110" align="right">
+            <template #default="{ row }">{{ benchValue(row, 'peak_rss_mb') }} MB</template>
+          </el-table-column>
+          <el-table-column label="结果" min-width="120">
+            <template #default="{ row }">
+              <span :class="{ 'benchmark-failed': row.status !== 'succeeded' }">
+                {{ row.status === 'succeeded' ? '成功' : benchValue(row, 'error') }}
+              </span>
+            </template>
+          </el-table-column>
+        </el-table>
+        <p class="benchmark-intro">
+          推荐值需在提交任务页手动应用；Benchmark 不会自动修改运行中的任务。
+        </p>
       </el-dialog>
     </template>
   </div>
@@ -3136,5 +3262,71 @@ html.dark .accent-card {
 
 .recent-table :deep(.el-table__cell) {
   font-size: 14px;
+}
+</style>
+
+<style scoped>
+.benchmark-intro {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.benchmark-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.benchmark-form :deep(.el-input-number) {
+  width: 100%;
+}
+
+.benchmark-form .el-button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.benchmark-status {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.benchmark-status strong {
+  color: var(--text);
+}
+
+.benchmark-error {
+  color: var(--red);
+}
+
+.benchmark-selected {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent-line);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 13px;
+}
+
+.benchmark-table {
+  margin-top: 16px;
+}
+
+.benchmark-failed {
+  color: var(--red);
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .benchmark-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

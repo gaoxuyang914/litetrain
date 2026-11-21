@@ -21,10 +21,13 @@ frontend/.env.local
 # Runtime data (keep demo assets below)
 backend/data/platform.db
 backend/data/platform.db-*
+backend/data/platform.db.bak-*
 backend/data/logs/*
 !backend/data/logs/.gitkeep
 backend/data/runs/*
 !backend/data/runs/.gitkeep
+backend/data/benchmarks/
+backend/data/quality/
 backend/data/.matplotlib/
 backend/data/datasets/**/*.cache
 backend/data/datasets/managed/
@@ -32,6 +35,7 @@ backend/data/datasets/_archives/
 backend/data/datasets/pipelines/
 backend/data/assets/*.zip
 .ultralytics/
+Ultralytics/
 .runtime/
 *.log
 

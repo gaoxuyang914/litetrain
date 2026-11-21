@@ -6,16 +6,21 @@ import type {
   LogChunk,
   PreviewResponse,
   Task,
+  TaskCheckpoint,
+  TaskCompareResponse,
   TaskCreatePayload,
   TaskEvent,
   TaskListResponse,
+  TaskManifest,
   TaskMetrics,
   TaskOptions,
   TaskQuery,
 } from '@/types/task'
 import type {
   Artifact,
+  BenchmarkRun,
   Dataset,
+  DatasetQuality,
   NodeTopologyItem,
   NodeTopologyResponse,
   Pipeline,
@@ -119,6 +124,30 @@ export const api = {
     return data
   },
 
+  async getTaskManifest(taskId: string): Promise<TaskManifest> {
+    const { data } = await http.get<TaskManifest>(`/tasks/${taskId}/manifest`)
+    return data
+  },
+
+  async getTaskCheckpoints(taskId: string): Promise<TaskCheckpoint[]> {
+    const { data } = await http.get<{ items: TaskCheckpoint[]; total: number }>(
+      `/tasks/${taskId}/checkpoints`,
+    )
+    return data.items
+  },
+
+  async resumeTask(taskId: string, mode: 'full' | 'weights'): Promise<Task> {
+    const { data } = await http.post<Task>(`/tasks/${taskId}/resume`, { mode })
+    return data
+  },
+
+  async compareTasks(taskIds: string[]): Promise<TaskCompareResponse> {
+    const { data } = await http.get<TaskCompareResponse>('/tasks/compare', {
+      params: { ids: taskIds.join(',') },
+    })
+    return data
+  },
+
   async applyNodeTopology(nodes: NodeTopologyItem[]): Promise<NodeTopologyResponse> {
     const { data } = await http.post<NodeTopologyResponse>('/cluster/nodes/topology', { nodes })
     return data
@@ -126,6 +155,29 @@ export const api = {
 
   async setNodeStatus(nodeId: string, status: 'online' | 'offline') {
     const { data } = await http.patch(`/cluster/nodes/${nodeId}`, { status })
+    return data
+  },
+
+  async startBenchmark(payload: {
+    dataset: string
+    model: string
+    imgsz: number
+    batch: number
+    threads: number[]
+    workers: number[]
+    epochs?: number
+  }): Promise<BenchmarkRun> {
+    const { data } = await http.post<BenchmarkRun>('/cluster/benchmarks', payload)
+    return data
+  },
+
+  async latestBenchmark(): Promise<BenchmarkRun | null> {
+    const { data } = await http.get<BenchmarkRun | null>('/cluster/benchmarks/latest')
+    return data
+  },
+
+  async getBenchmark(id: string): Promise<BenchmarkRun> {
+    const { data } = await http.get<BenchmarkRun>(`/cluster/benchmarks/${id}`)
     return data
   },
 
@@ -162,6 +214,27 @@ export const api = {
       timeout: 300_000,
     })
     return data
+  },
+
+  async getDatasetQuality(datasetId: string): Promise<DatasetQuality> {
+    const { data } = await http.get<DatasetQuality>(`/datasets/${datasetId}/quality`)
+    return data
+  },
+
+  async auditDataset(datasetId: string): Promise<DatasetQuality> {
+    const { data } = await http.post<DatasetQuality>(`/datasets/${datasetId}/audit`)
+    return data
+  },
+
+  async acknowledgeDatasetQuality(datasetId: string, note?: string): Promise<DatasetQuality> {
+    const { data } = await http.post<DatasetQuality>(`/datasets/${datasetId}/quality/ack`, {
+      note: note ?? null,
+    })
+    return data
+  },
+
+  datasetQualityReportUrl(datasetId: string): string {
+    return `/api/v1/datasets/${datasetId}/quality/report`
   },
 
   async deleteDataset(datasetId: string): Promise<void> {

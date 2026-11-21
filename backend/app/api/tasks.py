@@ -14,6 +14,10 @@ from app.models import TaskStatus
 from app.schemas import (
     CancelResponse,
     LogChunk,
+    ResumeTaskRequest,
+    RunManifestOut,
+    TaskCheckpointListResponse,
+    TaskCompareResponse,
     TaskCreate,
     TaskEventsResponse,
     TaskListResponse,
@@ -83,12 +87,75 @@ def list_tasks(
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
+@router.get("/compare", response_model=TaskCompareResponse, summary="Compare 2–4 runs")
+def compare_tasks(
+    ids: str = Query(..., min_length=1, max_length=200),
+    ctx: AppContext = Depends(get_ctx),
+) -> TaskCompareResponse:
+    task_ids = [item.strip() for item in ids.split(",") if item.strip()]
+    try:
+        return ctx.tasks.compare(task_ids)
+    except TaskNotFoundError as exc:
+        raise _not_found(str(exc)) from exc
+    except TaskValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
 @router.get("/{task_id}", response_model=TaskOut, summary="Task detail")
 def get_task(task_id: str, ctx: AppContext = Depends(get_ctx)) -> TaskOut:
     try:
         return ctx.tasks.get(task_id)
     except TaskNotFoundError as exc:
         raise _not_found(task_id) from exc
+
+
+@router.get(
+    "/{task_id}/manifest",
+    response_model=RunManifestOut,
+    summary="Reproducible run manifest",
+)
+def get_task_manifest(task_id: str, ctx: AppContext = Depends(get_ctx)) -> RunManifestOut:
+    try:
+        return ctx.tasks.manifest(task_id)
+    except TaskNotFoundError as exc:
+        raise _not_found(task_id) from exc
+    except TaskValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.get(
+    "/{task_id}/checkpoints",
+    response_model=TaskCheckpointListResponse,
+    summary="Checkpoints saved by a task",
+)
+def get_task_checkpoints(
+    task_id: str, ctx: AppContext = Depends(get_ctx)
+) -> TaskCheckpointListResponse:
+    try:
+        return ctx.tasks.checkpoints(task_id)
+    except TaskNotFoundError as exc:
+        raise _not_found(task_id) from exc
+
+
+@router.post(
+    "/{task_id}/resume",
+    response_model=TaskOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Resume from a checkpoint",
+)
+def resume_task(
+    task_id: str,
+    payload: ResumeTaskRequest,
+    ctx: AppContext = Depends(get_ctx),
+) -> TaskOut:
+    try:
+        task = ctx.tasks.resume(task_id, payload.mode)
+        ctx.scheduler.wake()
+        return task
+    except TaskNotFoundError as exc:
+        raise _not_found(task_id) from exc
+    except TaskValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
 @router.post("/{task_id}/cancel", response_model=CancelResponse, summary="Cancel a task")

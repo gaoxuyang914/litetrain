@@ -23,7 +23,7 @@ from sqlalchemy import select
 
 from app.config import BACKEND_DIR, Settings
 from app.database import Database
-from app.models import PipelineStage, Task
+from app.models import PipelineStage, Task, TaskCheckpoint
 from app.training.config import build_worker_command, resolve_dataset_path
 
 logger = logging.getLogger(__name__)
@@ -165,6 +165,7 @@ class ExecutionManager:
 
     def _environment(self, task: Task) -> dict[str, str]:
         env = os.environ.copy()
+        threads = task.compute_threads or task.cpu_cores
         env.update(
             {
                 "PYTHONUNBUFFERED": "1",
@@ -173,8 +174,8 @@ class ExecutionManager:
                     [str(BACKEND_DIR), env.get("PYTHONPATH", "")]
                 ).rstrip(os.pathsep),
                 "KMP_DUPLICATE_LIB_OK": "TRUE",
-                "OMP_NUM_THREADS": str(max(1, task.cpu_cores)),
-                "MKL_NUM_THREADS": str(max(1, task.cpu_cores)),
+                "OMP_NUM_THREADS": str(max(1, threads)),
+                "MKL_NUM_THREADS": str(max(1, threads)),
                 "YOLO_CONFIG_DIR": str(self.settings.ultralytics_config_dir),
                 "MPLCONFIGDIR": str(self.settings.matplotlib_dir),
                 "LITETRAIN_WORKER_API_BASE": self.settings.worker_api_base,
@@ -267,7 +268,34 @@ class ExecutionManager:
             workers=task.workers,
             cpu_cores=task.cpu_cores,
             run_dir=Path(task.result_path).parent,
+            compute_threads=task.compute_threads,
+            cache_mode=task.cache_mode,
+            save_period=task.save_period,
+            patience=task.patience,
+            seed=task.seed,
+            resume=self._resume_path(task),
+            resume_mode=task.resume_mode,
         )
+
+    def _resume_path(self, task: Task) -> str | None:
+        if not task.resume_from_task_id:
+            return None
+        with self.db.session() as session:
+            checkpoint = session.scalar(
+                select(TaskCheckpoint)
+                .where(TaskCheckpoint.task_id == task.resume_from_task_id)
+                .order_by(TaskCheckpoint.epoch.desc())
+            )
+            if checkpoint is not None:
+                path = self.settings.data_dir / checkpoint.path
+                if path.is_file():
+                    return str(path.resolve())
+            parent = session.get(Task, task.resume_from_task_id)
+            if parent is not None:
+                fallback = Path(parent.result_path).parent / "weights" / "last.pt"
+                if fallback.is_file():
+                    return str(fallback.resolve())
+        return None
 
     def _ensure_workdir(self, task: Task) -> Path:
         run_dir = Path(task.result_path).parent

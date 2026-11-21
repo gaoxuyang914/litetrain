@@ -96,6 +96,16 @@ class ControlPlaneClient:
             os._exit(1)
         response.raise_for_status()
 
+    def checkpoint(self, payload: dict[str, Any]) -> None:
+        response = self.session.post(self._url("/checkpoints"), json=payload, timeout=8.0)
+        if response.status_code in (403, 404, 409):
+            print(
+                f"[platform] checkpoint sink rejected ({response.status_code}); continuing",
+                flush=True,
+            )
+            return
+        response.raise_for_status()
+
     def close(self) -> None:
         self.session.close()
 
@@ -230,6 +240,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--cpu-cores", type=int, default=4)
+    parser.add_argument("--compute-threads", type=int, default=None)
+    parser.add_argument("--cache", choices=("none", "disk", "ram"), default="none")
+    parser.add_argument("--save-period", type=int, default=5)
+    parser.add_argument("--patience", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--resume", default=None)
+    parser.add_argument("--resume-mode", choices=("full", "weights"), default=None)
     parser.add_argument("--project", default=None)
     parser.add_argument("--name", default=None)
     return parser.parse_args(argv)
@@ -437,16 +454,22 @@ def run_evaluation(
 
 def run_training(args: argparse.Namespace, state: ProgressState, client: ControlPlaneClient) -> dict[str, float]:
     # These must be set before importing torch/ultralytics.
+    compute_threads = max(
+        1, min(args.compute_threads or args.cpu_cores, os.cpu_count() or args.cpu_cores)
+    )
+    os.environ["OMP_NUM_THREADS"] = str(compute_threads)
+    os.environ["MKL_NUM_THREADS"] = str(compute_threads)
     os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-    os.environ.setdefault("OMP_NUM_THREADS", str(max(1, args.cpu_cores)))
-    os.environ.setdefault("MKL_NUM_THREADS", str(max(1, args.cpu_cores)))
 
     _ensure_ultralytics_font()
     from ultralytics import YOLO
     import torch
 
-    torch.set_num_threads(max(1, min(args.cpu_cores, os.cpu_count() or args.cpu_cores)))
+    torch.set_num_threads(compute_threads)
 
+    resume_path = Path(args.resume).resolve() if args.resume else None
+    if resume_path is not None and not resume_path.is_file():
+        raise FileNotFoundError(f"checkpoint not found: {resume_path}")
     if not args.model or not Path(args.model).is_file():
         raise FileNotFoundError(f"model checkpoint not found: {args.model}")
     if not args.data or not Path(args.data).is_file():
@@ -454,11 +477,12 @@ def run_training(args: argparse.Namespace, state: ProgressState, client: Control
 
     print(
         f"[platform] starting YOLO CPU training: epochs={args.epochs} imgsz={args.imgsz} "
-        f"batch={args.batch} cores={args.cpu_cores}",
+        f"batch={args.batch} cores={args.cpu_cores} threads={compute_threads} "
+        f"workers={args.workers} cache={args.cache}",
         flush=True,
     )
     state.update(1.0, "loading model")
-    model = YOLO(args.model, task="detect")
+    model = YOLO(str(resume_path) if resume_path else args.model, task="detect")
     last_metrics: dict[str, float] = {}
 
     def on_train_epoch_start(trainer: Any) -> None:
@@ -485,6 +509,24 @@ def run_training(args: argparse.Namespace, state: ProgressState, client: Control
         last_metrics = values or last_metrics
         pct = min(99.8, (epoch / max(1, args.epochs)) * 100)
         state.update(pct, f"epoch {epoch}/{args.epochs} done")
+        save_dir = Path(getattr(trainer, "save_dir", "") or "")
+        candidate = save_dir / "weights" / f"epoch{epoch}.pt"
+        if not candidate.is_file():
+            candidate = save_dir / "weights" / "last.pt"
+        if candidate.is_file():
+            try:
+                client.checkpoint(
+                    {
+                        "epoch": max(1, min(epoch, args.epochs)),
+                        "path": str(candidate.resolve()),
+                        "size_bytes": candidate.stat().st_size,
+                        "metrics": values,
+                        "is_best": False,
+                    }
+                )
+                state.update(pct, f"epoch {epoch}/{args.epochs} checkpoint saved")
+            except Exception as exc:
+                print(f"[platform] checkpoint upload failed: {type(exc).__name__}: {exc}", flush=True)
         # Ultralytics runs a final validation with epoch temporarily bumped by
         # one; keep those values as a summary but do not create a duplicate
         # chart point beyond the configured epoch count.
@@ -515,24 +557,30 @@ def run_training(args: argparse.Namespace, state: ProgressState, client: Control
     model.add_callback("on_fit_epoch_end", on_fit_epoch_end)
 
     state.update(2.0, "training")
-    model.train(
-        data=args.data,
-        epochs=args.epochs,
-        imgsz=args.imgsz,
-        batch=args.batch,
-        device="cpu",
-        workers=args.workers,
-        project=args.project,
-        name=args.name,
-        exist_ok=True,
-        plots=False,
-        val=True,
-        save=True,
-        verbose=True,
-        seed=0,
-        deterministic=True,
-        amp=False,
-    )
+    train_kwargs: dict[str, Any] = {
+        "data": args.data,
+        "epochs": args.epochs,
+        "imgsz": args.imgsz,
+        "batch": args.batch,
+        "device": "cpu",
+        "workers": args.workers,
+        "project": args.project,
+        "name": args.name,
+        "exist_ok": True,
+        "plots": False,
+        "val": True,
+        "save": True,
+        "save_period": args.save_period,
+        "cache": args.cache,
+        "verbose": True,
+        "seed": args.seed,
+        "deterministic": True,
+        "amp": False,
+        "resume": bool(resume_path and args.resume_mode == "full"),
+    }
+    if args.patience is not None:
+        train_kwargs["patience"] = args.patience
+    model.train(**train_kwargs)
     state.update(100.0, "finished")
     return last_metrics
 

@@ -15,7 +15,7 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { api } from '@/api/client'
-import type { Artifact, Dataset, WebhookDelivery, WebhookEndpoint } from '@/types/p2'
+import type { Artifact, Dataset, DatasetQuality, WebhookDelivery, WebhookEndpoint } from '@/types/p2'
 import { copyText, formatBytes, formatDate, timeAgo } from '@/utils/format'
 
 const router = useRouter()
@@ -56,6 +56,11 @@ const eventOptions = [
   { value: '*', label: '* (all events)' },
 ]
 const actionBusy = ref<string | null>(null)
+const qualityOpen = ref(false)
+const qualityBusy = ref(false)
+const qualityDataset = ref<Dataset | null>(null)
+const qualityData = ref<DatasetQuality | null>(null)
+let qualityTimer: number | undefined
 let timer: number | undefined
 
 const activeWebhooks = computed(() => webhooks.value.filter((item) => item.active).length)
@@ -74,6 +79,92 @@ const pagedArtifacts = computed(() =>
 const successfulDeliveries = computed(
   () => deliveries.value.filter((item) => item.status === 'success').length,
 )
+
+const qualityLabels: Record<string, string> = {
+  pending: '待体检',
+  auditing: '体检中',
+  passed: '通过',
+  warning: '需确认',
+  blocked: '已阻断',
+  failed: '体检失败',
+}
+
+function qualityLabel(status: string): string {
+  return qualityLabels[status] ?? status
+}
+
+function qualityTone(status: string): string {
+  if (status === 'passed') return 'passed'
+  if (status === 'warning') return 'warning'
+  if (status === 'blocked' || status === 'failed') return 'blocked'
+  return 'pending'
+}
+
+async function openQuality(dataset: Dataset | Record<string, any>) {
+  qualityDataset.value = dataset as Dataset
+  qualityData.value = null
+  qualityOpen.value = true
+  qualityBusy.value = true
+  try {
+    qualityData.value = await api.getDatasetQuality((dataset as Dataset).id)
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '读取质量报告失败')
+  } finally {
+    qualityBusy.value = false
+  }
+}
+
+function scheduleQualityRefresh() {
+  if (qualityTimer) window.clearTimeout(qualityTimer)
+  qualityTimer = window.setTimeout(async () => {
+    if (!qualityDataset.value) return
+    try {
+      qualityData.value = await api.getDatasetQuality(qualityDataset.value.id)
+      if (qualityData.value.status === 'auditing') scheduleQualityRefresh()
+    } catch {
+      // Keep the last known state; the next manual refresh can recover.
+    }
+  }, 1200)
+}
+
+async function rerunQuality() {
+  if (!qualityDataset.value) return
+  qualityBusy.value = true
+  try {
+    qualityData.value = await api.auditDataset(qualityDataset.value.id)
+    await loadDatasets(true)
+    scheduleQualityRefresh()
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '启动数据体检失败')
+  } finally {
+    qualityBusy.value = false
+  }
+}
+
+async function acknowledgeQuality() {
+  if (!qualityDataset.value) return
+  qualityBusy.value = true
+  try {
+    qualityData.value = await api.acknowledgeDatasetQuality(qualityDataset.value.id)
+    await loadDatasets(true)
+    ElMessage.success('已确认质量警告，可继续提交训练')
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '确认质量警告失败')
+  } finally {
+    qualityBusy.value = false
+  }
+}
+
+function openQualityReport() {
+  if (qualityDataset.value) {
+    window.open(api.datasetQualityReportUrl(qualityDataset.value.id), '_blank', 'noopener')
+  }
+}
+
+function qualitySummary(key: string): number | string {
+  const value = qualityData.value?.summary?.[key]
+  return typeof value === 'number' || typeof value === 'string' ? value : '—'
+}
 
 const artifactFilters: Array<{ key: 'all' | 'model' | 'metrics' | 'config'; label: string }> = [
   { key: 'all', label: '全部' },
@@ -349,6 +440,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (timer) window.clearInterval(timer)
+  if (qualityTimer) window.clearTimeout(qualityTimer)
 })
 </script>
 
@@ -430,16 +522,9 @@ onBeforeUnmount(() => {
                 <span class="dataset-icon"><el-icon><FolderOpened /></el-icon></span>
                 <div>
                   <strong>{{ row.name }}</strong>
-                  <span class="mono">{{ row.version }} · {{ row.yaml_path }}</span>
+                  <span class="mono">{{ row.version }} · {{ row.is_builtin ? '内置' : '上传' }} · {{ row.yaml_path }}</span>
                 </div>
               </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="来源" width="100">
-            <template #default="{ row }">
-              <span class="soft-tag" :class="{ builtin: row.is_builtin }">
-                {{ row.is_builtin ? '内置' : '已上传' }}
-              </span>
             </template>
           </el-table-column>
           <el-table-column label="规模" min-width="120">
@@ -449,6 +534,18 @@ onBeforeUnmount(() => {
           </el-table-column>
           <el-table-column label="类别" width="70" align="center">
             <template #default="{ row }"><span class="count-pill">{{ row.class_count }}</span></template>
+          </el-table-column>
+          <el-table-column label="质量" width="100">
+            <template #default="{ row }">
+              <button
+                class="quality-pill"
+                :class="qualityTone(row.quality_status)"
+                type="button"
+                @click="openQuality(row)"
+              >
+                <i></i>{{ qualityLabel(row.quality_status) }}
+              </button>
+            </template>
           </el-table-column>
           <el-table-column label="大小" width="95">
             <template #default="{ row }"><span class="mono">{{ formatBytes(row.size_bytes) }}</span></template>
@@ -486,6 +583,7 @@ onBeforeUnmount(() => {
               <span>{{ row.class_count }} 个类别</span>
             </div>
             <div class="mobile-card-actions">
+              <el-button size="small" text @click="openQuality(row)">质量</el-button>
               <el-button v-if="!row.is_builtin" size="small" text :icon="Download" @click="downloadDataset(row)">下载</el-button>
               <el-button v-if="!row.is_builtin" size="small" text :loading="actionBusy === row.id" :icon="Delete" @click="removeDataset(row)" />
             </div>
@@ -652,6 +750,67 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </section>
+
+    <el-dialog v-model="qualityOpen" title="数据质量报告" width="720px">
+      <div v-if="qualityBusy && !qualityData" class="quality-loading">
+        <el-skeleton :rows="5" animated />
+      </div>
+      <template v-else-if="qualityData && qualityDataset">
+        <div class="quality-head">
+          <div>
+            <span class="quality-dataset">{{ qualityDataset.name }}</span>
+            <strong>{{ qualityLabel(qualityData.status) }}</strong>
+          </div>
+          <span class="quality-score">{{ qualityData.score ?? '—' }}<small>分</small></span>
+        </div>
+
+        <div class="quality-summary">
+          <div><span>图片</span><strong>{{ qualitySummary('images') }}</strong></div>
+          <div><span>目标框</span><strong>{{ qualitySummary('objects') }}</strong></div>
+          <div><span>阻断项</span><strong>{{ qualitySummary('blocking_issues') }}</strong></div>
+          <div><span>警告项</span><strong>{{ qualitySummary('warning_issues') }}</strong></div>
+        </div>
+
+        <div v-if="qualityData.issues.length" class="quality-issues">
+          <article
+            v-for="issue in qualityData.issues"
+            :key="issue.code"
+            class="quality-issue"
+            :class="issue.severity"
+          >
+            <div>
+              <strong>{{ issue.message }}</strong>
+              <span class="mono">{{ issue.code }} · {{ issue.count }} 处</span>
+            </div>
+            <span class="quality-severity">{{ issue.severity === 'blocking' ? '阻断' : '警告' }}</span>
+          </article>
+        </div>
+        <div v-else class="quality-empty">未发现问题，可以进入训练。</div>
+
+        <p class="quality-note">
+          阻断项不允许训练；警告项需要确认后才能提交。近重复和缺失标签只作为警告，完全重复和越界标签会阻断。
+        </p>
+      </template>
+      <template #footer>
+        <el-button :loading="qualityBusy" @click="rerunQuality">重新体检</el-button>
+        <el-button
+          v-if="qualityData?.status === 'warning'"
+          type="primary"
+          :loading="qualityBusy"
+          @click="acknowledgeQuality"
+        >
+          确认警告
+        </el-button>
+        <el-button
+          v-if="qualityData?.report_url"
+          text
+          @click="openQualityReport"
+        >
+          打开完整报告
+        </el-button>
+        <el-button @click="qualityOpen = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="uploadOpen" title="导入 YOLO 数据集" width="560px">
       <el-upload
@@ -2177,6 +2336,194 @@ html.dark .asset-tab.active strong {
 
   .asset-tab small {
     display: none;
+  }
+}
+</style>
+
+<style scoped>
+.quality-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-soft);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.quality-pill i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.quality-pill.passed {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.quality-pill.warning {
+  border-color: rgba(154, 106, 30, 0.25);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.quality-pill.blocked {
+  border-color: rgba(178, 61, 61, 0.24);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.quality-pill.pending {
+  color: var(--text-muted);
+}
+
+.quality-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.quality-dataset {
+  display: block;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.quality-head strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 22px;
+}
+
+.quality-score {
+  color: var(--accent-strong);
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.quality-score small {
+  margin-left: 2px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.quality-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.quality-summary div {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-soft);
+}
+
+.quality-summary span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.quality-summary strong {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: 20px;
+}
+
+.quality-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 18px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.quality-issue {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.quality-issue > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.quality-issue strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.quality-issue .mono {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.quality-issue.blocking {
+  border-left: 3px solid var(--red);
+}
+
+.quality-issue.warning {
+  border-left: 3px solid var(--amber);
+}
+
+.quality-severity {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.quality-empty {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.quality-note {
+  margin-top: 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.quality-loading {
+  padding: 10px 0;
+}
+
+@media (max-width: 600px) {
+  .quality-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quality-head strong {
+    font-size: 19px;
+  }
+
+  .quality-score {
+    font-size: 26px;
   }
 }
 </style>

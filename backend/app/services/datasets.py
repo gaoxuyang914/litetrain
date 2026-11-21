@@ -72,6 +72,32 @@ def _class_count(data: dict[str, Any]) -> int:
     return int(nc) if isinstance(nc, int) else 0
 
 
+def _file_sha256(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def content_hash(root: Path) -> str:
+    """Stable SHA-256 over relative paths, sizes and file contents."""
+    hasher = hashlib.sha256()
+    files = sorted(
+        (path for path in root.rglob("*") if path.is_file()),
+        key=lambda path: path.relative_to(root).as_posix(),
+    )
+    for path in files:
+        relative = path.relative_to(root).as_posix()
+        hasher.update(relative.encode("utf-8"))
+        hasher.update(b"\0")
+        hasher.update(str(path.stat().st_size).encode("ascii"))
+        hasher.update(b"\0")
+        hasher.update(_file_sha256(path).encode("ascii"))
+        hasher.update(b"\n")
+    return hasher.hexdigest()
+
+
 def _find_yaml(root: Path) -> Path:
     candidates = []
     for path in root.rglob("*.yaml"):
@@ -108,26 +134,41 @@ class DatasetService:
                     DatasetRecord.version == "builtin",
                 )
             )
-            if exists is not None:
-                return
             root = builtin_yaml.parent
             images, labels, size, _ = _count_tree(root)
             data = _read_yaml(builtin_yaml)
-            record = DatasetRecord(
-                id="ds-builtin-coco128",
-                name="COCO128",
-                version="builtin",
-                description="Ultralytics coco128 示例数据集，仓库内置",
-                yaml_path=builtin_yaml.relative_to(self.settings.datasets_dir).as_posix(),
-                image_count=images,
-                label_count=labels,
-                class_count=_class_count(data),
-                size_bytes=size,
-                status="ready",
-                is_builtin=True,
-                created_at=utcnow(),
-            )
-            session.add(record)
+            digest = content_hash(root)
+            if exists is not None:
+                # Built-in demo data is treated as pre-approved; do not block
+                # existing installs when the quality fields are introduced.
+                exists.content_sha256 = exists.content_sha256 or digest
+                if exists.quality_status in {"pending", "auditing", "failed"}:
+                    exists.quality_status = "passed"
+                    exists.quality_score = 100.0
+                    exists.quality_engine_version = "builtin"
+                    exists.quality_checked_at = utcnow()
+                record = exists
+            else:
+                record = DatasetRecord(
+                    id="ds-builtin-coco128",
+                    name="COCO128",
+                    version="builtin",
+                    description="Ultralytics coco128 示例数据集，仓库内置",
+                    yaml_path=builtin_yaml.relative_to(self.settings.datasets_dir).as_posix(),
+                    content_sha256=digest,
+                    image_count=images,
+                    label_count=labels,
+                    class_count=_class_count(data),
+                    size_bytes=size,
+                    status="ready",
+                    quality_status="passed",
+                    quality_score=100.0,
+                    quality_engine_version="builtin",
+                    quality_checked_at=utcnow(),
+                    is_builtin=True,
+                    created_at=utcnow(),
+                )
+                session.add(record)
             session.flush()
         logger.info("dataset registry seeded with built-in COCO128")
 
@@ -140,11 +181,15 @@ class DatasetService:
             description=record.description,
             yaml_path=record.yaml_path,
             source_filename=archive_name,
+            content_sha256=record.content_sha256,
             image_count=record.image_count,
             label_count=record.label_count,
             class_count=record.class_count,
             size_bytes=record.size_bytes,
             status=record.status,
+            quality_status=record.quality_status,
+            quality_score=record.quality_score,
+            quality_acknowledged=record.quality_acknowledged,
             is_builtin=record.is_builtin,
             created_at=record.created_at,
         )
@@ -164,6 +209,37 @@ class DatasetService:
             if record is None or record.status == "deleted":
                 raise DatasetError("dataset not found", 404)
             return self._to_schema(record)
+
+    def find_by_yaml(self, dataset: str) -> DatasetRecord | None:
+        """Resolve a task's dataset YAML to a managed registry record."""
+        target = Path(dataset).name
+        with self.db.session() as session:
+            records = session.scalars(
+                select(DatasetRecord).where(DatasetRecord.status != "deleted")
+            ).all()
+            for record in records:
+                if Path(record.yaml_path).name == target:
+                    return record
+                if record.yaml_path.endswith(dataset):
+                    return record
+            return None
+
+    def mark_quality_started(self, dataset_id: str) -> None:
+        with self.db.session() as session:
+            record = session.get(DatasetRecord, dataset_id)
+            if record is not None:
+                record.quality_status = "auditing"
+                record.quality_score = None
+                session.flush()
+
+    def mark_quality_failed(self, dataset_id: str, error: str) -> None:
+        with self.db.session() as session:
+            record = session.get(DatasetRecord, dataset_id)
+            if record is not None:
+                record.quality_status = "failed"
+                record.quality_engine_version = "1"
+                record.quality_checked_at = utcnow()
+                session.flush()
 
     def import_archive(
         self,
@@ -233,6 +309,7 @@ class DatasetService:
                 class_count=_class_count(data),
                 size_bytes=size,
                 status="ready",
+                quality_status="pending",
                 is_builtin=False,
                 created_at=utcnow(),
             )

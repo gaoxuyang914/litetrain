@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import hmac
+import json
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.api.deps import get_ctx
 from app.context import AppContext
 from app.database import utcnow
-from app.models import ResourceSample, Task, TaskMetric, TaskStatus
+from app.models import ResourceSample, Task, TaskCheckpoint, TaskMetric, TaskStatus
 from app.schemas import (
+    CheckpointIngestRequest,
+    CheckpointIngestResponse,
     HeartbeatPayload,
     HeartbeatResponse,
     MetricsIngestRequest,
@@ -121,3 +126,54 @@ def ingest_metrics(
             result = session.execute(statement)
             stored += int(result.rowcount or 0)
     return MetricsIngestResponse(accepted=True, stored=stored)
+
+
+@router.post(
+    "/tasks/{task_id}/checkpoints",
+    response_model=CheckpointIngestResponse,
+    summary="Register a training checkpoint",
+)
+def ingest_checkpoint(
+    task_id: str,
+    payload: CheckpointIngestRequest,
+    x_worker_token: str = Header(alias="X-Worker-Token"),
+    ctx: AppContext = Depends(get_ctx),
+) -> CheckpointIngestResponse:
+    _authenticated_task(ctx, task_id, x_worker_token)
+    path = Path(payload.path).resolve()
+    root = ctx.settings.data_dir.resolve()
+    if root not in path.parents or not path.is_file():
+        raise HTTPException(status_code=422, detail="checkpoint must be a file under data_dir")
+    relative = path.relative_to(root).as_posix()
+    now = utcnow()
+    with ctx.db.session() as session:
+        live = session.get(Task, task_id)
+        if live is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        row = session.scalar(
+            select(TaskCheckpoint).where(
+                TaskCheckpoint.task_id == task_id,
+                TaskCheckpoint.epoch == payload.epoch,
+            )
+        )
+        if row is None:
+            row = TaskCheckpoint(
+                task_id=task_id,
+                epoch=payload.epoch,
+                path=relative,
+                size_bytes=payload.size_bytes,
+                metrics_json=None,
+                is_best=payload.is_best,
+                created_at=now,
+            )
+            session.add(row)
+        else:
+            row.path = relative
+            row.size_bytes = payload.size_bytes
+            row.is_best = payload.is_best
+            row.created_at = now
+        row.metrics_json = json.dumps(payload.metrics, ensure_ascii=False)
+        live.checkpoint_epoch = max(live.checkpoint_epoch or 0, payload.epoch)
+        session.flush()
+        checkpoint_id = row.id
+    return CheckpointIngestResponse(accepted=True, checkpoint_id=checkpoint_id)

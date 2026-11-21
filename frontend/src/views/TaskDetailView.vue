@@ -23,7 +23,7 @@ import LogTerminal from '@/components/LogTerminal.vue'
 import MetricsPanel from '@/components/MetricsPanel.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useNotifications } from '@/composables/useNotifications'
-import type { Task, TaskEvent, TaskMetrics } from '@/types/task'
+import type { Task, TaskCheckpoint, TaskEvent, TaskManifest, TaskMetrics } from '@/types/task'
 import {
   copyText,
   formatBytes,
@@ -42,6 +42,8 @@ const { notify } = useNotifications()
 const task = ref<Task | null>(null)
 const metrics = ref<TaskMetrics | null>(null)
 const events = ref<TaskEvent[]>([])
+const manifest = ref<TaskManifest | null>(null)
+const checkpoints = ref<TaskCheckpoint[]>([])
 const loading = ref(true)
 const refreshing = ref(false)
 const error = ref<string | null>(null)
@@ -87,6 +89,17 @@ const executorLabel = computed(() => {
   if (!value) return ''
   return value.toLowerCase() === 'ray' ? 'Ray' : value
 })
+
+async function resumeTask(mode: 'full' | 'weights' = 'full') {
+  if (!task.value) return
+  try {
+    const resumed = await api.resumeTask(task.value.id, mode)
+    ElMessage.success(`已创建恢复任务 ${resumed.id}`)
+    router.push({ name: 'task-detail', params: { id: resumed.id } })
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '恢复任务失败')
+  }
+}
 
 function eventMessage(message: string): string {
   const success = message.match(/^Training succeeded in (\d+)s$/i)
@@ -195,6 +208,13 @@ async function loadAll(initial = false) {
       api.getTaskEvents(taskId.value).catch(() => [] as TaskEvent[]),
     ])
     if (seq !== requestSeq) return
+    const [manifestData, checkpointData] = await Promise.all([
+      api.getTaskManifest(taskId.value).catch(() => null),
+      api.getTaskCheckpoints(taskId.value).catch(() => [] as TaskCheckpoint[]),
+    ])
+    if (seq !== requestSeq) return
+    manifest.value = manifestData
+    checkpoints.value = checkpointData
     if (metricData) {
       metrics.value = metricData
       metricsError.value = null
@@ -366,6 +386,13 @@ onBeforeUnmount(() => stopPolling())
           @click="loadAll(false)"
         />
         <el-button :icon="Download" @click="downloadLog">下载日志</el-button>
+        <el-button
+          v-if="task && ['failed', 'cancelled'].includes(task.status)"
+          :icon="Refresh"
+          @click="resumeTask('full')"
+        >
+          从 checkpoint 恢复
+        </el-button>
         <el-button
           v-if="task && !terminal"
           type="danger"
@@ -596,6 +623,57 @@ onBeforeUnmount(() => stopPolling())
                   </div>
                 </li>
               </ol>
+            </div>
+          </section>
+
+          <section class="panel side-info-card" v-if="manifest">
+            <div class="panel-head">
+              <h2>运行清单</h2>
+            </div>
+            <div class="lifecycle-body">
+              <div class="lifecycle-item">
+                <span>数据集哈希</span>
+                <strong class="mono">{{ manifest.dataset_sha256?.slice(0, 12) ?? '—' }}…</strong>
+              </div>
+              <div class="lifecycle-item">
+                <span>模型哈希</span>
+                <strong class="mono">{{ manifest.model_sha256?.slice(0, 12) ?? '—' }}…</strong>
+              </div>
+              <div class="lifecycle-item">
+                <span>Git commit</span>
+                <strong class="mono">{{ manifest.git_commit?.slice(0, 10) ?? 'unknown' }}</strong>
+              </div>
+              <div class="lifecycle-item">
+                <span>随机种子</span>
+                <strong class="mono">{{ task.seed }}</strong>
+              </div>
+              <div class="lifecycle-item">
+                <span>数据质量</span>
+                <strong>{{ manifest.manifest.dataset?.quality_status ?? '—' }}</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel side-info-card" v-if="checkpoints.length">
+            <div class="panel-head">
+              <h2>Checkpoint</h2>
+              <span class="panel-caption">{{ checkpoints.length }} 个</span>
+            </div>
+            <div class="lifecycle-body">
+              <button
+                v-for="checkpoint in checkpoints.slice(-5)"
+                :key="checkpoint.epoch"
+                type="button"
+                class="checkpoint-row"
+                :disabled="!['failed', 'cancelled'].includes(task.status)"
+                @click="resumeTask('full')"
+              >
+                <span>Epoch {{ checkpoint.epoch }}</span>
+                <span class="mono">{{ formatBytes(checkpoint.size_bytes) }}</span>
+                <span class="checkpoint-resume">
+                  {{ ['failed', 'cancelled'].includes(task.status) ? '恢复' : '已完成' }}
+                </span>
+              </button>
             </div>
           </section>
 
@@ -1853,5 +1931,51 @@ onBeforeUnmount(() => stopPolling())
   .hero-stat-hint {
     font-size: 12px;
   }
+}
+</style>
+
+<style scoped>
+.checkpoint-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.checkpoint-row:last-child {
+  border-bottom: 0;
+}
+
+.checkpoint-row:hover {
+  color: var(--accent-strong);
+}
+
+.checkpoint-row:disabled {
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+.checkpoint-row:disabled .checkpoint-resume {
+  color: var(--text-muted);
+}
+
+.checkpoint-row .mono {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.checkpoint-resume {
+  color: var(--accent);
+  font-size: 12px;
 }
 </style>

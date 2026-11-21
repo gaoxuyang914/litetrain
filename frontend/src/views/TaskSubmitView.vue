@@ -16,12 +16,14 @@ import {
 } from '@element-plus/icons-vue'
 
 import { api } from '@/api/client'
+import type { Dataset } from '@/types/p2'
 import type { PreviewResponse, TaskCreatePayload, TaskOptions } from '@/types/task'
 import { copyText, formatDuration } from '@/utils/format'
 
 const router = useRouter()
 const formRef = ref<FormInstance>()
 const options = ref<TaskOptions | null>(null)
+const datasets = ref<Dataset[]>([])
 const loadingOptions = ref(true)
 const pageError = ref<string | null>(null)
 const submitting = ref(false)
@@ -33,11 +35,18 @@ const form = reactive<TaskCreatePayload>({
   name: '',
   model: 'yolov8n.pt',
   dataset: 'coco128.yaml',
+  dataset_id: null,
+  quality_ack: false,
   epochs: 3,
   imgsz: 160,
   batch_size: 4,
   workers: 0,
   cpu_cores: 4,
+  compute_threads: null,
+  cache_mode: 'none',
+  seed: 0,
+  patience: null,
+  save_period: 5,
   priority: 50,
   max_runtime_seconds: 1800,
   max_retries: 0,
@@ -62,6 +71,32 @@ const backendLabel = computed(() =>
 const assetsMissing = computed(
   () => options.value != null && (options.value.models.length === 0 || options.value.datasets.length === 0),
 )
+const datasetRecord = computed(() => {
+  const current = form.dataset
+  return datasets.value.find((item) => {
+    const yamlName = item.yaml_path.split('/').pop()
+    return yamlName === current || item.name === current
+  })
+})
+const qualityBlocked = computed(
+  () =>
+    datasetRecord.value != null &&
+    ['pending', 'auditing', 'blocked', 'failed'].includes(datasetRecord.value.quality_status),
+)
+const qualityNeedsAck = computed(
+  () => datasetRecord.value?.quality_status === 'warning' && !form.quality_ack,
+)
+const qualityLabel = computed(() => {
+  const status = datasetRecord.value?.quality_status
+  return {
+    passed: '已通过',
+    warning: '有警告',
+    pending: '待体检',
+    auditing: '体检中',
+    blocked: '已阻断',
+    failed: '体检失败',
+  }[status ?? 'pending'] ?? '未体检'
+})
 
 const cpuMarks = computed(() => {
   const marks: Record<number, string> = { 1: '1' }
@@ -131,8 +166,9 @@ async function runPreview() {
 
 async function loadOptions() {
   try {
-    const data = await api.getOptions()
+    const [data, datasetList] = await Promise.all([api.getOptions(), api.listDatasets()])
     options.value = data
+    datasets.value = datasetList
     pageError.value = null
     Object.assign(form, {
       model: data.models.includes(data.defaults.model) ? data.defaults.model : data.models[0] ?? data.defaults.model,
@@ -151,6 +187,8 @@ async function loadOptions() {
       max_retries: data.defaults.max_retries,
       workers: data.defaults.workers,
     })
+    const selected = datasetRecord.value
+    form.dataset_id = selected?.id ?? null
     await nextTick()
     runPreview()
   } catch (err) {
@@ -165,6 +203,14 @@ async function submit() {
   try {
     await formRef.value.validate()
   } catch {
+    return
+  }
+  if (qualityBlocked.value) {
+    ElMessage.warning(`数据集${qualityLabel.value}，请先处理数据质量报告`)
+    return
+  }
+  if (qualityNeedsAck.value) {
+    ElMessage.warning('该数据集有质量警告，请先确认再提交')
     return
   }
   submitting.value = true
@@ -217,6 +263,24 @@ async function copyCommand() {
 }
 
 watch(form, schedulePreview, { deep: true })
+
+watch(
+  () => form.dataset,
+  () => {
+    const selected = datasetRecord.value
+    form.dataset_id = selected?.id ?? null
+    form.quality_ack = false
+    if (selected && ['pending', 'auditing'].includes(selected.quality_status)) {
+      window.setTimeout(async () => {
+        try {
+          datasets.value = await api.listDatasets()
+        } catch {
+          // The submit gate still protects the API path.
+        }
+      }, 1500)
+    }
+  },
+)
 
 onMounted(loadOptions)
 
@@ -327,6 +391,37 @@ onBeforeUnmount(() => {
                 </el-select>
               </el-form-item>
 
+              <div
+                v-if="datasetRecord"
+                class="quality-gate span-2"
+                :class="{
+                  blocked: qualityBlocked,
+                  warning: datasetRecord.quality_status === 'warning',
+                }"
+              >
+                <div>
+                  <strong>数据质量：{{ qualityLabel }}</strong>
+                  <span v-if="qualityBlocked">
+                    该数据集尚未通过体检，请到数据与产物页处理后再提交。
+                  </span>
+                  <span v-else-if="datasetRecord.quality_status === 'warning'">
+                    存在警告项，确认后才能训练。建议先查看质量报告。
+                  </span>
+                  <span v-else>
+                    {{ datasetRecord.image_count }} 张图 / {{ datasetRecord.label_count }} 个标签，可以进入训练。
+                  </span>
+                </div>
+                <el-checkbox
+                  v-if="datasetRecord.quality_status === 'warning'"
+                  v-model="form.quality_ack"
+                >
+                  我已确认质量警告
+                </el-checkbox>
+                <el-button text size="small" @click="router.push({ name: 'assets' })">
+                  查看报告
+                </el-button>
+              </div>
+
               <el-form-item label="训练轮数">
                 <el-input-number v-model="form.epochs" :min="1" :max="50" :step="1" controls-position="right" class="full" />
               </el-form-item>
@@ -378,6 +473,28 @@ onBeforeUnmount(() => {
                   <span class="tag-soft" :class="coreStress.tone">{{ coreStress.label }}</span>
                   <span>单用户配额 {{ quota }} 核，集群上限 {{ totalCpus }} 核</span>
                 </div>
+              </div>
+
+              <div class="resource-block compact-block">
+                <span class="el-form-item__label">计算线程</span>
+                <el-input-number
+                  v-model="form.compute_threads"
+                  :min="1"
+                  :max="form.cpu_cores"
+                  :step="1"
+                  controls-position="right"
+                />
+                <span class="field-hint">留空时按 CPU 配额；推荐值来自 Benchmark</span>
+              </div>
+
+              <div class="resource-block compact-block">
+                <span class="el-form-item__label">数据缓存</span>
+                <el-select v-model="form.cache_mode" class="full">
+                  <el-option label="不缓存" value="none" />
+                  <el-option label="磁盘缓存" value="disk" />
+                  <el-option label="内存缓存" value="ram" />
+                </el-select>
+                <span class="field-hint">先跑 Benchmark，确认 I/O 瓶颈后再开启</span>
               </div>
 
               <div class="resource-block">
@@ -1389,6 +1506,56 @@ onBeforeUnmount(() => {
 
   .preview-panel {
     padding: 16px;
+  }
+}
+</style>
+
+<style scoped>
+.quality-gate {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -2px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-soft);
+}
+
+.quality-gate > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.quality-gate strong {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.quality-gate span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.quality-gate.blocked {
+  border-color: rgba(178, 61, 61, 0.22);
+  background: var(--red-soft);
+}
+
+.quality-gate.warning {
+  border-color: rgba(154, 106, 30, 0.24);
+  background: var(--amber-soft);
+}
+
+@media (max-width: 760px) {
+  .quality-gate {
+    align-items: flex-start;
+    flex-wrap: wrap;
   }
 }
 </style>

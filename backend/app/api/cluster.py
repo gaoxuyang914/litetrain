@@ -8,6 +8,8 @@ from app import __version__
 from app.api.deps import get_ctx
 from app.context import AppContext
 from app.schemas import (
+    BenchmarkCreate,
+    BenchmarkOut,
     ClusterOverview,
     HealthResponse,
     NodeInfo,
@@ -15,6 +17,7 @@ from app.schemas import (
     NodeTopologyRequest,
     NodeTopologyResponse,
 )
+from app.services.benchmark import BenchmarkError
 from app.services.resources import ResourceError
 
 router = APIRouter(prefix="/cluster", tags=["cluster"])
@@ -64,6 +67,43 @@ def set_node_status(
         if node.id == node_id:
             return node
     raise HTTPException(status_code=404, detail="node not found")
+
+
+@router.post(
+    "/benchmarks",
+    response_model=BenchmarkOut,
+    status_code=201,
+    summary="Start a short CPU training benchmark",
+)
+def start_benchmark(
+    payload: BenchmarkCreate,
+    ctx: AppContext = Depends(get_ctx),
+) -> BenchmarkOut:
+    try:
+        return ctx.benchmark.start(payload)
+    except BenchmarkError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.get(
+    "/benchmarks/latest",
+    response_model=BenchmarkOut | None,
+    summary="Latest CPU benchmark and selected profile",
+)
+def latest_benchmark(ctx: AppContext = Depends(get_ctx)) -> BenchmarkOut | None:
+    return ctx.benchmark.latest()
+
+
+@router.get(
+    "/benchmarks/{benchmark_id}",
+    response_model=BenchmarkOut,
+    summary="CPU benchmark detail",
+)
+def get_benchmark(benchmark_id: str, ctx: AppContext = Depends(get_ctx)) -> BenchmarkOut:
+    try:
+        return ctx.benchmark.get(benchmark_id)
+    except BenchmarkError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
 @router.get("/health", response_model=HealthResponse, summary="Backend health")

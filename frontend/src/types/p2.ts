@@ -17,13 +17,52 @@ export interface Dataset {
   description: string | null
   yaml_path: string
   source_filename: string | null
+  content_sha256: string | null
   image_count: number
   label_count: number
   class_count: number
   size_bytes: number
   status: string
+  quality_status: 'pending' | 'auditing' | 'passed' | 'warning' | 'blocked' | 'failed'
+  quality_score: number | null
+  quality_acknowledged: boolean
   is_builtin: boolean
   created_at: string
+}
+
+export interface QualityIssue {
+  code: string
+  severity: 'blocking' | 'warning'
+  message: string
+  count: number
+  examples: string[]
+}
+
+export interface DatasetQuality {
+  dataset_id: string
+  status: Dataset['quality_status']
+  score: number | null
+  engine_version: string | null
+  checked_at: string | null
+  summary: Record<string, unknown>
+  issues: QualityIssue[]
+  report_url: string | null
+}
+
+export interface BenchmarkRun {
+  id: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed'
+  dataset: string | null
+  host: Record<string, unknown>
+  matrix: {
+    configs?: Array<Record<string, unknown>>
+    results?: Array<Record<string, unknown>>
+  }
+  selected: Record<string, unknown> | null
+  log_path: string | null
+  error: string | null
+  created_at: string
+  finished_at: string | null
 }
 
 export interface Artifact {

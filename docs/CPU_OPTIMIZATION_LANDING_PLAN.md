@@ -4,6 +4,19 @@
 > 目标：把方向性建议收敛成可排期、可验收、可回滚的工程计划  
 > 日期：2026-11-21
 
+## 实施状态（v2.4.0）
+
+第一轮 P0 已落地：
+
+- **M0**：SQLite 可重复加列迁移；数据集内容 SHA-256；任务配置快照与 Run Manifest。
+- **M1**：数据质量体检（标签结构/坐标/类别、图片解码、缺失/孤儿标签、完全重复、train/val 泄漏、类别分布、小目标）、质量报告、警告确认与训练/流水线准入。
+- **M2**：短周期 CPU Benchmark（threads/workers，images/s、耗时、峰值 RSS）和推荐 profile API。
+- **M3**：每轮 checkpoint 上报、任务详情展示、失败/取消后人工 resume；worker 支持 seed/save_period/patience/cache/compute_threads。
+- **M4**：Run Manifest API、任务详情清单、2–4 个任务对比 API/UI。
+- 验证：后端 33 个测试通过；前端 typecheck/build 通过；真实 1-epoch 任务产出 manifest 和 checkpoint；真实 Benchmark 返回推荐值。
+
+P1/P2 尚未实施，仍按本文后续章节推进。下文保留原始规划口径，便于对照。
+
 ## 0. 一页结论
 
 当前平台已经具备任务队列、CPU 配额、优先级调度、心跳/超时回收、Ray detached actor、日志 SSE、指标曲线、资源采样、流水线、数据集注册、产物 SHA-256 和 Webhook outbox。源方案里的“任务队列、资源限制、训练日志和指标展示”**不需要重做**。
@@ -156,7 +169,7 @@ app.training.worker
 - **P0 不扩展任务状态机**：保留 `pending/running/succeeded/failed/cancelled`。审计用 `quality_status`，准备阶段用事件/进度表达。P1 若确实需要人工暂停，再引入 `paused`。
 - **P0 只人工 resume**：失败后显示“从最近 checkpoint 恢复”，创建新 Task 并记录 `resume_from_task_id`；不自动使用 checkpoint 重试，避免掩盖数据/配置错误。
 - **本地存储优先**：继续 `data/datasets`、`data/runs`、`data/benchmarks`、`data/quality`；不引入 MinIO。
-- **数据库迁移**：当前 `create_all` 不能给已有 SQLite 表加列，必须加 Alembic；生产升级前备份 `platform.db`。
+- **数据库迁移**：当前 `create_all` 不能给已有 SQLite 表加列；本轮已加入可重复执行的加列迁移和备份流程。若后续进入多实例/频繁演进，再升级到 Alembic。
 - **GPU 预留**：只定义接口和配置字段，不在本轮写 CUDA 代码。
 
 ### 3.2 新增存储目录

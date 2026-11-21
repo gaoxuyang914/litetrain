@@ -110,10 +110,17 @@ def build_worker_command(
     workers: int,
     cpu_cores: int,
     run_dir: Path,
+    compute_threads: int | None = None,
+    cache_mode: str = "none",
+    save_period: int = 5,
+    patience: int | None = None,
+    seed: int = 0,
+    resume: str | None = None,
+    resume_mode: str | None = None,
 ) -> list[str]:
     model_path = resolve_model_path(settings, model)
     dataset_path = resolve_dataset_path(settings, dataset)
-    return [
+    command = [
         settings.resolved_worker_python,
         "-m",
         "app.training.worker",
@@ -135,11 +142,23 @@ def build_worker_command(
         str(workers),
         "--cpu-cores",
         str(cpu_cores),
-        "--project",
-        str(settings.runs_dir),
-        "--name",
-        task_id,
     ]
+    if compute_threads is not None:
+        command.extend(["--compute-threads", str(compute_threads)])
+    if cache_mode and cache_mode != "none":
+        command.extend(["--cache", cache_mode])
+    if save_period is not None:
+        command.extend(["--save-period", str(save_period)])
+    if patience is not None:
+        command.extend(["--patience", str(patience)])
+    if seed:
+        command.extend(["--seed", str(seed)])
+    if resume:
+        command.extend(["--resume", resume])
+    if resume_mode:
+        command.extend(["--resume-mode", resume_mode])
+    command.extend(["--project", str(settings.runs_dir), "--name", task_id])
+    return command
 
 
 def list_models(settings: Settings) -> list[str]:

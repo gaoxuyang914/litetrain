@@ -13,8 +13,12 @@ from app.schemas import (
     ArtifactListResponse,
     DatasetListResponse,
     DatasetOut,
+    DatasetQualityAck,
+    DatasetQualityOut,
+    QualityIssueOut,
 )
 from app.services.datasets import DatasetError, MAX_UPLOAD_BYTES
+from app.services.quality import QualityError
 
 datasets_router = APIRouter(prefix="/datasets", tags=["datasets"])
 artifacts_router = APIRouter(prefix="/artifacts", tags=["artifacts"])
@@ -58,13 +62,15 @@ async def upload_dataset(
                 handle.write(chunk)
         if total == 0:
             raise HTTPException(status_code=422, detail="uploaded archive is empty")
-        return ctx.datasets.import_archive(
+        result = ctx.datasets.import_archive(
             name=name,
             version=version,
             description=(description or "").strip() or None,
             filename=file.filename,
             source_path=temporary,
         )
+        ctx.quality.start(result.id)
+        return ctx.datasets.get(result.id)
     except DatasetError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     finally:
@@ -78,6 +84,77 @@ def get_dataset(dataset_id: str, ctx: AppContext = Depends(get_ctx)) -> DatasetO
         return ctx.datasets.get(dataset_id)
     except DatasetError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@datasets_router.post(
+    "/{dataset_id}/audit",
+    response_model=DatasetQualityOut,
+    summary="Start or refresh dataset quality inspection",
+)
+def audit_dataset(
+    dataset_id: str,
+    force: bool = Query(default=False),
+    ctx: AppContext = Depends(get_ctx),
+) -> DatasetQualityOut:
+    try:
+        return ctx.quality.start(dataset_id, force=force)
+    except QualityError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@datasets_router.get(
+    "/{dataset_id}/quality",
+    response_model=DatasetQualityOut,
+    summary="Dataset quality summary and issues",
+)
+def dataset_quality(dataset_id: str, ctx: AppContext = Depends(get_ctx)) -> DatasetQualityOut:
+    try:
+        return ctx.quality.get_quality(dataset_id)
+    except QualityError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@datasets_router.get(
+    "/{dataset_id}/quality/issues",
+    response_model=list[QualityIssueOut],
+    summary="Dataset quality issues",
+)
+def dataset_quality_issues(
+    dataset_id: str,
+    ctx: AppContext = Depends(get_ctx),
+) -> list[QualityIssueOut]:
+    try:
+        return ctx.quality.get_quality(dataset_id).issues
+    except QualityError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@datasets_router.post(
+    "/{dataset_id}/quality/ack",
+    response_model=DatasetQualityOut,
+    summary="Acknowledge a warning dataset",
+)
+def acknowledge_quality(
+    dataset_id: str,
+    payload: DatasetQualityAck,
+    ctx: AppContext = Depends(get_ctx),
+) -> DatasetQualityOut:
+    try:
+        return ctx.quality.ack(dataset_id, payload.note)
+    except QualityError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@datasets_router.get(
+    "/{dataset_id}/quality/report",
+    summary="Download the HTML quality report",
+)
+def download_quality_report(dataset_id: str, ctx: AppContext = Depends(get_ctx)) -> FileResponse:
+    try:
+        path = ctx.quality.report_path(dataset_id)
+    except QualityError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    return FileResponse(path, media_type="text/html", filename=f"{dataset_id}-quality.html")
 
 
 @datasets_router.delete("/{dataset_id}", status_code=204, summary="Soft-delete a dataset")

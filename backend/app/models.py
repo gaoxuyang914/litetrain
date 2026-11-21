@@ -62,9 +62,25 @@ class Task(Base):
 
     # Resource / lifecycle configuration
     cpu_cores: Mapped[int] = mapped_column(Integer, nullable=False)
+    compute_threads: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cache_mode: Mapped[str] = mapped_column(String(8), nullable=False, default="none")
+    seed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    patience: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    save_period: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     max_runtime_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=1800)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Dataset / reproducibility
+    dataset_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    dataset_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Resume lineage (implemented in the checkpoint work package)
+    resume_from_task_id: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    resume_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    checkpoint_epoch: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stop_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
     # Lifecycle timestamps
     submitted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
@@ -195,11 +211,19 @@ class DatasetRecord(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     yaml_path: Mapped[str] = mapped_column(String(512), nullable=False)
     archive_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     image_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     label_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     class_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="ready")
+    quality_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", index=True)
+    quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quality_report_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    quality_issue_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    quality_engine_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    quality_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    quality_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_builtin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
 
@@ -207,6 +231,71 @@ class DatasetRecord(Base):
         UniqueConstraint("name", "version", name="uq_dataset_name_version"),
         Index("ix_datasets_created", "created_at"),
     )
+
+
+class DatasetQualityReport(Base):
+    __tablename__ = "dataset_quality_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    dataset_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    summary_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    report_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    issue_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    engine_version: Mapped[str] = mapped_column(String(32), nullable=False, default="1")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (Index("ix_quality_dataset_created", "dataset_id", "created_at"),)
+
+
+class TaskCheckpoint(Base):
+    __tablename__ = "task_checkpoints"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(
+        String(24), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    epoch: Mapped[int] = mapped_column(Integer, nullable=False)
+    path: Mapped[str] = mapped_column(String(512), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    metrics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_best: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (UniqueConstraint("task_id", "epoch", name="uq_task_checkpoint_epoch"),)
+
+
+class RunManifest(Base):
+    __tablename__ = "run_manifests"
+
+    task_id: Mapped[str] = mapped_column(
+        String(24), ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True
+    )
+    manifest_json: Mapped[str] = mapped_column(Text, nullable=False)
+    dataset_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    model_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    git_commit: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
+class BenchmarkRun(Base):
+    __tablename__ = "benchmark_runs"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued", index=True)
+    dataset: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    host_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    matrix_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    selected_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    log_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Pipeline(Base):

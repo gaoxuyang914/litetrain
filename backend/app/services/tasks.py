@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import secrets
 import uuid
@@ -17,7 +18,9 @@ from app.models import (
     DatasetRecord,
     Node,
     ResourceSample,
+    RunManifest,
     Task,
+    TaskCheckpoint,
     TaskEvent,
     TaskMetric,
     TaskStatus,
@@ -26,6 +29,10 @@ from app.schemas import (
     MetricPoint,
     MetricSeries,
     ResourcePoint,
+    TaskCheckpointListResponse,
+    TaskCheckpointOut,
+    TaskCompareItem,
+    TaskCompareResponse,
     TaskCreate,
     TaskEventOut,
     TaskEventsResponse,
@@ -34,9 +41,12 @@ from app.schemas import (
     TaskOptions,
     TaskOut,
     TaskPreviewResponse,
+    RunManifestOut,
 )
 from app.services.event_bus import EventBroker
 from app.services.logs import LogStore
+from app.services.manifests import RunManifestService
+from app.services.quality import QualityError
 from app.training.config import (
     TrainingAssetError,
     build_display_command,
@@ -108,11 +118,17 @@ class TaskService:
         db: Database,
         log_store: LogStore,
         broker: EventBroker,
+        *,
+        datasets=None,
+        quality=None,
     ) -> None:
         self.settings = settings
         self.db = db
         self.log_store = log_store
         self.broker = broker
+        self.datasets = datasets
+        self.quality = quality
+        self.manifests = RunManifestService(settings)
 
     # --------------------------------------------------------------- creation
     def _id(self, session: Session) -> str:
@@ -122,7 +138,33 @@ class TaskService:
                 return candidate
         raise TaskValidationError("Unable to allocate a task id", 500)
 
-    def _validate_request(self, payload: TaskCreate) -> tuple[Path, Path, str]:
+    def _dataset_record(self, payload: TaskCreate) -> DatasetRecord | None:
+        record: DatasetRecord | None = None
+        if payload.dataset_id:
+            with self.db.session() as session:
+                record = session.get(DatasetRecord, payload.dataset_id)
+            if record is None or record.status == "deleted":
+                raise TaskValidationError("dataset not found", 422)
+        elif self.datasets is not None:
+            record = self.datasets.find_by_yaml(payload.dataset)
+        if record is None:
+            return None
+        status = record.quality_status
+        if status in {"pending", "auditing"}:
+            raise TaskValidationError("dataset quality audit is still running", 409)
+        if status in {"blocked", "failed"}:
+            raise TaskValidationError(
+                f"dataset quality check is {status}; open the quality report before training", 422
+            )
+        if status == "warning" and not (record.quality_acknowledged or payload.quality_ack):
+            raise TaskValidationError(
+                "dataset has quality warnings; acknowledge the report before training", 422
+            )
+        return record
+
+    def _validate_request(
+        self, payload: TaskCreate, dataset_value: str | None = None
+    ) -> tuple[Path, Path, str]:
         with self.db.session() as session:
             max_node_cpus = int(
                 session.scalar(
@@ -148,18 +190,22 @@ class TaskService:
             )
         try:
             model_path = resolve_model_path(self.settings, payload.model)
-            dataset_path = resolve_dataset_path(self.settings, payload.dataset)
+            dataset_path = resolve_dataset_path(
+                self.settings, dataset_value or payload.dataset
+            )
         except TrainingAssetError as exc:
             raise TaskValidationError(str(exc)) from exc
         return model_path, dataset_path, Path(payload.model).name
 
     def preview(self, payload: TaskCreate) -> TaskPreviewResponse:
-        self._validate_request(payload)
+        record = self._dataset_record(payload)
+        dataset_value = Path(record.yaml_path).name if record is not None else payload.dataset
+        self._validate_request(payload, dataset_value)
         command = build_display_command(
             self.settings,
             task_id="<task-id>",
             model=payload.model,
-            dataset=payload.dataset,
+            dataset=dataset_value,
             epochs=payload.epochs,
             imgsz=payload.imgsz,
             batch_size=payload.batch_size,
@@ -168,7 +214,7 @@ class TaskService:
         )
         equivalent = build_equivalent_yolo_command(
             model=payload.model,
-            dataset=payload.dataset,
+            dataset=dataset_value,
             epochs=payload.epochs,
             imgsz=payload.imgsz,
             batch_size=payload.batch_size,
@@ -182,14 +228,37 @@ class TaskService:
         )
 
     def create(self, payload: TaskCreate) -> TaskOut:
-        _, _, model_name = self._validate_request(payload)
+        record = self._dataset_record(payload)
+        dataset_value = Path(record.yaml_path).name if record is not None else payload.dataset
+        model_path, _, model_name = self._validate_request(payload, dataset_value)
+        dataset_sha256 = record.content_sha256 if record is not None else None
+        compute_threads = payload.compute_threads or min(payload.cpu_cores, 8)
+        config = {
+            "model": payload.model,
+            "dataset": dataset_value,
+            "dataset_id": record.id if record is not None else None,
+            "dataset_sha256": dataset_sha256,
+            "epochs": payload.epochs,
+            "imgsz": payload.imgsz,
+            "batch_size": payload.batch_size,
+            "workers": payload.workers,
+            "cpu_cores": payload.cpu_cores,
+            "compute_threads": compute_threads,
+            "cache_mode": payload.cache_mode,
+            "seed": payload.seed,
+            "patience": payload.patience,
+            "save_period": payload.save_period,
+            "priority": payload.priority,
+            "max_runtime_seconds": payload.max_runtime_seconds,
+            "max_retries": payload.max_retries,
+        }
         with self.db.session() as session:
             task_id = self._id(session)
             display_command = build_display_command(
                 self.settings,
                 task_id=task_id,
                 model=payload.model,
-                dataset=payload.dataset,
+                dataset=dataset_value,
                 epochs=payload.epochs,
                 imgsz=payload.imgsz,
                 batch_size=payload.batch_size,
@@ -197,7 +266,7 @@ class TaskService:
                 cpu_cores=payload.cpu_cores,
             )
             name = payload.name or (
-                f"YOLO {Path(payload.dataset).stem} · {payload.epochs}ep · "
+                f"YOLO {Path(dataset_value).stem} · {payload.epochs}ep · "
                 f"{payload.imgsz}px · {task_id[-4:]}"
             )
             now = utcnow()
@@ -210,7 +279,9 @@ class TaskService:
                 status=TaskStatus.PENDING.value,
                 priority=payload.priority,
                 model=model_name,
-                dataset=payload.dataset,
+                dataset=dataset_value,
+                dataset_id=record.id if record is not None else None,
+                dataset_sha256=dataset_sha256,
                 epochs=payload.epochs,
                 imgsz=payload.imgsz,
                 batch_size=payload.batch_size,
@@ -219,9 +290,15 @@ class TaskService:
                 command=display_command,
                 notes=payload.notes,
                 cpu_cores=payload.cpu_cores,
+                compute_threads=compute_threads,
+                cache_mode=payload.cache_mode,
+                seed=payload.seed,
+                patience=payload.patience,
+                save_period=payload.save_period,
                 max_runtime_seconds=payload.max_runtime_seconds,
                 max_retries=payload.max_retries,
                 retry_count=0,
+                config_json=json.dumps(config, ensure_ascii=False),
                 submitted_at=now,
                 queued_at=now,
                 log_path=str(log_path),
@@ -230,6 +307,12 @@ class TaskService:
             )
             session.add(task)
             session.flush()
+            try:
+                self.manifests.persist(
+                    session, task, model_path=model_path, dataset=record
+                )
+            except Exception:
+                logger.exception("failed to persist run manifest for %s", task.id)
             add_event(
                 session,
                 task.id,
@@ -284,6 +367,159 @@ class TaskService:
             if task.status == TaskStatus.PENDING.value:
                 queue_position = self._queue_positions(session).get(task.id)
             return self._to_schema(task, queue_position)
+
+    def manifest(self, task_id: str) -> RunManifestOut:
+        with self.db.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise TaskNotFoundError(task_id)
+            manifest = self.manifests.get(session, task_id)
+            if manifest is None:
+                raise TaskValidationError("manifest is not available for this task", 404)
+            return manifest
+
+    def checkpoints(self, task_id: str) -> TaskCheckpointListResponse:
+        with self.db.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise TaskNotFoundError(task_id)
+            rows = session.scalars(
+                select(TaskCheckpoint)
+                .where(TaskCheckpoint.task_id == task_id)
+                .order_by(TaskCheckpoint.epoch.asc())
+            ).all()
+            items = []
+            for row in rows:
+                try:
+                    metrics = json.loads(row.metrics_json or "{}")
+                except json.JSONDecodeError:
+                    metrics = {}
+                items.append(
+                    TaskCheckpointOut(
+                        epoch=row.epoch,
+                        path=row.path,
+                        size_bytes=row.size_bytes,
+                        metrics=metrics,
+                        is_best=row.is_best,
+                        created_at=row.created_at,
+                    )
+                )
+            return TaskCheckpointListResponse(items=items, total=len(items))
+
+    def resume(self, task_id: str, mode: str = "full") -> TaskOut:
+        original = self.get_model(task_id)
+        if original.status not in {TaskStatus.FAILED.value, TaskStatus.CANCELLED.value}:
+            raise TaskValidationError("only failed or cancelled tasks can be resumed", 409)
+        with self.db.session() as session:
+            checkpoint = session.scalar(
+                select(TaskCheckpoint)
+                .where(TaskCheckpoint.task_id == task_id)
+                .order_by(TaskCheckpoint.epoch.desc())
+            )
+            fallback = Path(original.result_path).parent / "weights" / "last.pt"
+        if checkpoint is None and not fallback.is_file():
+            raise TaskValidationError("no checkpoint is available for this task", 409)
+        try:
+            config = json.loads(original.config_json or "{}")
+        except json.JSONDecodeError:
+            config = {}
+        dataset = config.get("dataset") or original.dataset
+        payload = TaskCreate(
+            name=f"{original.name} · resume",
+            model=original.model,
+            dataset=Path(dataset).name,
+            dataset_id=original.dataset_id,
+            quality_ack=True,
+            epochs=original.epochs,
+            imgsz=original.imgsz,
+            batch_size=original.batch_size,
+            workers=original.workers,
+            cpu_cores=original.cpu_cores,
+            compute_threads=original.compute_threads,
+            cache_mode=original.cache_mode,
+            seed=original.seed,
+            patience=original.patience,
+            save_period=original.save_period,
+            priority=original.priority,
+            max_runtime_seconds=original.max_runtime_seconds,
+            max_retries=original.max_retries,
+            notes=f"resume from {task_id} ({mode})",
+        )
+        created = self.create(payload)
+        with self.db.session() as session:
+            task = session.get(Task, created.id)
+            if task is None:
+                raise TaskNotFoundError(created.id)
+            task.resume_from_task_id = task_id
+            task.resume_mode = mode
+            task.checkpoint_epoch = checkpoint.epoch if checkpoint is not None else 0
+            try:
+                stored = json.loads(task.config_json or "{}")
+            except json.JSONDecodeError:
+                stored = {}
+            stored["resume_from_task_id"] = task_id
+            stored["resume_mode"] = mode
+            task.config_json = json.dumps(stored, ensure_ascii=False)
+            add_event(
+                session,
+                task.id,
+                "resumed",
+                f"Resume from {task_id} ({mode}) at checkpoint {task.checkpoint_epoch}",
+            )
+            session.flush()
+        return self.get(created.id)
+
+    def compare(self, task_ids: list[str]) -> TaskCompareResponse:
+        unique = list(dict.fromkeys(task_ids))
+        if len(unique) < 2 or len(unique) > 4:
+            raise TaskValidationError("select 2–4 tasks to compare")
+        items: list[TaskCompareItem] = []
+        with self.db.session() as session:
+            for task_id in unique:
+                task = session.get(Task, task_id)
+                if task is None:
+                    raise TaskNotFoundError(task_id)
+                manifest_row = self.manifests.get(session, task_id)
+                try:
+                    config = json.loads(task.config_json or "{}")
+                except json.JSONDecodeError:
+                    config = {}
+                items.append(
+                    TaskCompareItem(
+                        task_id=task.id,
+                        name=task.name,
+                        status=task.status,
+                        dataset_id=task.dataset_id,
+                        dataset_sha256=task.dataset_sha256,
+                        config=config,
+                        runtime_seconds=runtime_seconds(task),
+                        manifest=manifest_row.manifest if manifest_row else None,
+                    )
+                )
+        for item in items:
+            metrics = self.metrics(item.task_id)
+            item.final_metrics = metrics.final_metrics
+            item.peak_memory_mb = max(
+                (point.memory_mb for point in metrics.resources), default=0.0
+            ) or None
+
+        hashes = {item.dataset_sha256 for item in items if item.dataset_sha256}
+        names = {item.config.get("dataset") for item in items if item.config.get("dataset")}
+        compatible = len(hashes) <= 1 and len(names) <= 1
+        reason = None
+        if not compatible:
+            reason = "任务使用了不同数据集，不能直接比较指标排名"
+        first = items[0].final_metrics
+        deltas: dict[str, float] = {}
+        for key, value in items[-1].final_metrics.items():
+            if key in first:
+                deltas[key] = round(value - first[key], 6)
+        return TaskCompareResponse(
+            compatible=compatible,
+            reason=reason,
+            items=items,
+            metric_deltas=deltas,
+        )
 
     def get_model(self, task_id: str) -> Task:
         with self.db.session() as session:

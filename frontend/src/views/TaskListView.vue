@@ -15,7 +15,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useNotifications } from '@/composables/useNotifications'
-import type { Task, TaskListResponse, TaskStatus } from '@/types/task'
+import type { Task, TaskCompareResponse, TaskListResponse, TaskStatus } from '@/types/task'
 import {
   formatDate,
   formatDuration,
@@ -42,6 +42,10 @@ const statusFilter = ref<'all' | TaskStatus>('all')
 const searchInput = ref('')
 const appliedSearch = ref('')
 const cancellingId = ref<string | null>(null)
+const selectedIds = ref<string[]>([])
+const compareOpen = ref(false)
+const comparing = ref(false)
+const compareData = ref<TaskCompareResponse | null>(null)
 const lastStatuses = new Map<string, TaskStatus>()
 let timer: number | undefined
 let requestSeq = 0
@@ -58,6 +62,30 @@ const filterChips = computed(() => [
 const hasActiveTasks = computed(() =>
   tasks.value.some((task) => !isTerminal(task.status)),
 )
+
+function toggleSelected(taskId: string) {
+  const index = selectedIds.value.indexOf(taskId)
+  if (index >= 0) selectedIds.value.splice(index, 1)
+  else if (selectedIds.value.length < 4) selectedIds.value.push(taskId)
+}
+
+async function openCompare() {
+  if (selectedIds.value.length < 2) return
+  comparing.value = true
+  compareOpen.value = true
+  try {
+    compareData.value = await api.compareTasks(selectedIds.value)
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '加载对比失败')
+  } finally {
+    comparing.value = false
+  }
+}
+
+function metricValue(row: { final_metrics?: Record<string, number> }, key: string): string {
+  const value = row.final_metrics?.[key]
+  return typeof value === 'number' ? value.toFixed(4) : '—'
+}
 
 async function fetchTasks(silent = false) {
   const seq = ++requestSeq
@@ -205,6 +233,13 @@ onBeforeUnmount(() => {
           title="立即刷新"
           @click="fetchTasks()"
         />
+        <el-button
+          v-if="selectedIds.length >= 2"
+          :loading="comparing"
+          @click="openCompare"
+        >
+          对比 {{ selectedIds.length }} 个任务
+        </el-button>
         <el-button type="primary" :icon="Plus" @click="router.push({ name: 'task-submit' })">
           提交任务
         </el-button>
@@ -268,6 +303,15 @@ onBeforeUnmount(() => {
           class="task-table"
           @row-click="openDetail"
         >
+          <el-table-column width="44" align="center">
+            <template #default="{ row }">
+              <el-checkbox
+                :model-value="selectedIds.includes(row.id)"
+                @click.stop
+                @change="toggleSelected(row.id)"
+              />
+            </template>
+          </el-table-column>
           <el-table-column label="任务" min-width="230">
             <template #default="{ row }">
               <div class="task-cell">
@@ -385,6 +429,10 @@ onBeforeUnmount(() => {
         <div class="task-mobile-list">
           <article v-for="row in tasks" :key="row.id" class="task-mobile-card">
             <div class="task-mobile-head">
+              <el-checkbox
+                :model-value="selectedIds.includes(row.id)"
+                @change="toggleSelected(row.id)"
+              />
               <span class="priority-rail" :class="priorityTone(row.priority)"></span>
               <div class="task-mobile-name">
                 <strong>{{ row.name }}</strong>
@@ -428,6 +476,51 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </section>
+
+    <el-dialog v-model="compareOpen" title="实验对比" width="860px">
+      <el-skeleton v-if="comparing" :rows="5" animated />
+      <template v-else-if="compareData">
+        <el-alert
+          v-if="!compareData.compatible"
+          :title="compareData.reason || '数据集不一致，不能直接比较指标'"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
+        <el-table :data="compareData.items" class="compare-table">
+          <el-table-column prop="name" label="任务" min-width="160" />
+          <el-table-column label="数据集" min-width="120">
+            <template #default="{ row }">
+              <span class="mono">{{ row.config.dataset ?? '—' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="mAP50" width="90" align="right">
+            <template #default="{ row }">
+              {{ metricValue(row, 'metrics/mAP50(B)') }}
+            </template>
+          </el-table-column>
+          <el-table-column label="mAP50-95" width="100" align="right">
+            <template #default="{ row }">
+              {{ metricValue(row, 'metrics/mAP50-95(B)') }}
+            </template>
+          </el-table-column>
+          <el-table-column label="耗时" width="90" align="right">
+            <template #default="{ row }">{{ formatDuration(row.runtime_seconds) }}</template>
+          </el-table-column>
+          <el-table-column label="峰值内存" width="100" align="right">
+            <template #default="{ row }">
+              {{ row.peak_memory_mb ? `${row.peak_memory_mb.toFixed(0)} MB` : '—' }}
+            </template>
+          </el-table-column>
+        </el-table>
+        <div v-if="Object.keys(compareData.metric_deltas).length" class="compare-deltas">
+          <span v-for="(delta, key) in compareData.metric_deltas" :key="key">
+            <span class="mono">{{ key }}</span>
+            <strong :class="{ negative: delta < 0 }">{{ delta > 0 ? '+' : '' }}{{ delta.toFixed(4) }}</strong>
+          </span>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1165,5 +1258,37 @@ onBeforeUnmount(() => {
   .pagination-note {
     display: none;
   }
+}
+</style>
+
+<style scoped>
+.compare-table {
+  margin-top: 14px;
+}
+
+.compare-deltas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.compare-deltas > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.compare-deltas strong {
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.compare-deltas strong.negative {
+  color: var(--red);
 }
 </style>

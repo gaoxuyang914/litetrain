@@ -240,7 +240,7 @@ onBeforeUnmount(() => {
           <span class="sidebar-doc-arrow">↗</span>
         </a>
         <div class="sidebar-signature">
-          <span class="mono">v2.3.0</span>
+          <span class="mono">v2.4.0</span>
           <span>仅 CPU · 本地优先</span>
         </div>
       </div>    </aside>
@@ -328,7 +328,7 @@ onBeforeUnmount(() => {
       </main>
 
       <footer class="app-footer">
-        <span>LiteTrain 2.3 · CPU-only YOLO training control plane</span>
+        <span>LiteTrain 2.4 · CPU-only YOLO training control plane</span>
         <span class="mono">FastAPI · Redis · Ray · SQLite</span>
       </footer>
     </div>

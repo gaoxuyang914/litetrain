@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 
 from app.config import Settings
 from app.database import Database, utcnow
-from app.models import Node, Pipeline, PipelineStage, Task, TaskStatus
+from app.models import DatasetRecord, Node, Pipeline, PipelineStage, Task, TaskStatus
 from app.schemas import (
     ArtifactOut,
     PipelineCreate,
@@ -31,6 +31,7 @@ from app.schemas import (
 from app.services.artifacts import ArtifactService
 from app.services.event_bus import EventBroker
 from app.services.logs import LogStore
+from app.services.manifests import RunManifestService
 from app.services.tasks import add_event, runtime_seconds
 from app.services.webhooks import enqueue_pipeline_event
 from app.training.config import (
@@ -72,6 +73,7 @@ class PipelineService:
         self.log_store = log_store
         self.broker = broker
         self.artifacts = artifacts
+        self.manifests = RunManifestService(settings)
 
     # ------------------------------------------------------------------ helpers
     def _id(self, session, prefix: str = "pl") -> str:
@@ -186,6 +188,16 @@ class PipelineService:
             log_path=str(self.log_store.path_for(task_id)),
             result_path=str(run_dir / "result.json"),
             worker_token=secrets.token_urlsafe(32),
+            config_json=json.dumps(
+                {
+                    **pipeline_cfg,
+                    "pipeline_id": pipeline.id,
+                    "stage": stage.stage_key,
+                    "stage_config": stage_config,
+                    "dataset": dataset,
+                },
+                ensure_ascii=False,
+            ),
         )
         session.add(task)
         # Insert the Task first so the PipelineStage FK can reference it; the
@@ -196,6 +208,11 @@ class PipelineService:
         stage.status = TaskStatus.PENDING.value
         stage.config_json = json.dumps(stage_config, ensure_ascii=False)
         session.flush()
+        try:
+            model_path = resolve_model_path(self.settings, task.model)
+            self.manifests.persist(session, task, model_path=model_path, dataset=None)
+        except Exception:
+            logger.exception("could not create manifest for pipeline task %s", task.id)
         add_event(
             session,
             task.id,
@@ -247,6 +264,22 @@ class PipelineService:
             model_path = resolve_model_path(self.settings, payload.model)
         except TrainingAssetError as exc:
             raise PipelineError(str(exc)) from exc
+        source_name = Path(payload.source_dataset).name
+        with self.db.session() as session:
+            records = session.scalars(
+                select(DatasetRecord).where(DatasetRecord.status != "deleted")
+            ).all()
+        record = next(
+            (item for item in records if Path(item.yaml_path).name == source_name),
+            None,
+        )
+        if record is not None:
+            if record.quality_status in {"pending", "auditing"}:
+                raise PipelineError("source dataset quality audit is still running", 409)
+            if record.quality_status in {"blocked", "failed"}:
+                raise PipelineError("source dataset is blocked by quality inspection", 422)
+            if record.quality_status == "warning" and not record.quality_acknowledged:
+                raise PipelineError("source dataset has unacknowledged quality warnings", 422)
 
         pipeline_id = "pl" + uuid.uuid4().hex[:12]
         name = payload.name or f"Pipeline · {Path(payload.source_dataset).stem} · {payload.epochs}ep"

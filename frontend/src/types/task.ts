@@ -8,6 +8,8 @@ export interface Task {
   priority: number
   model: string
   dataset: string
+  dataset_id: string | null
+  dataset_sha256: string | null
   epochs: number
   imgsz: number
   batch_size: number
@@ -16,6 +18,15 @@ export interface Task {
   command: string
   notes: string | null
   cpu_cores: number
+  compute_threads: number | null
+  cache_mode: string
+  seed: number
+  patience: number | null
+  save_period: number
+  resume_from_task_id: string | null
+  resume_mode: string | null
+  checkpoint_epoch: number | null
+  stop_reason: string | null
   max_runtime_seconds: number
   max_retries: number
   retry_count: number
@@ -51,15 +62,71 @@ export interface TaskCreatePayload {
   name?: string
   model: string
   dataset: string
+  dataset_id?: string | null
+  quality_ack?: boolean
   epochs: number
   imgsz: number
   batch_size: number
   workers: number
   cpu_cores: number
+  compute_threads?: number | null
+  cache_mode?: 'none' | 'disk' | 'ram'
+  seed?: number
+  patience?: number | null
+  save_period?: number
   priority: number
   max_runtime_seconds: number
   max_retries: number
   notes?: string | null
+}
+
+export interface TaskCheckpoint {
+  epoch: number
+  path: string
+  size_bytes: number
+  metrics: Record<string, number>
+  is_best: boolean
+  created_at: string
+}
+
+export interface TaskManifest {
+  task_id: string
+  manifest: {
+    dataset?: {
+      id?: string | null
+      name?: string | null
+      version?: string | null
+      content_sha256?: string | null
+      quality_status?: string
+    }
+    model?: { name?: string; sha256?: string | null }
+    config?: Record<string, unknown>
+    runtime?: Record<string, unknown>
+  }
+  dataset_sha256: string | null
+  model_sha256: string | null
+  git_commit: string | null
+  created_at: string
+}
+
+export interface TaskCompareItem {
+  task_id: string
+  name: string
+  status: TaskStatus
+  dataset_id: string | null
+  dataset_sha256: string | null
+  config: Record<string, unknown>
+  final_metrics: Record<string, number>
+  runtime_seconds: number
+  peak_memory_mb: number | null
+  manifest: TaskManifest['manifest'] | null
+}
+
+export interface TaskCompareResponse {
+  compatible: boolean
+  reason: string | null
+  items: TaskCompareItem[]
+  metric_deltas: Record<string, number>
 }
 
 export interface TaskOptions {
