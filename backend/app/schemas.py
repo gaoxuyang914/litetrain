@@ -258,6 +258,14 @@ class TaskCounts(BaseModel):
     total: int = 0
 
 
+class NodeTaskInfo(BaseModel):
+    id: str
+    name: str
+    progress: float = 0.0
+    cpu_cores: int
+    status: str = "running"
+
+
 class NodeInfo(BaseModel):
     id: str
     name: str
@@ -267,6 +275,7 @@ class NodeInfo(BaseModel):
     allocated_cpus: int
     free_cpus: int
     running_tasks: int
+    active_tasks: list[NodeTaskInfo] = Field(default_factory=list)
     cpu_utilization_percent: float
     host_percent: float
     last_seen: UtcDateTime

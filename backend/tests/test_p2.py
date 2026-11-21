@@ -208,7 +208,12 @@ def test_two_node_topology_and_balanced_allocation(client, ctx, payload):
         ctx.resources.create_allocation(session, task_b, node_b)
         session.flush()
         assert ctx.resources.choose_node(session, "demo", 2) is None
+        task_a.status = "running"
+        task_a.started_at = utcnow()
         session.flush()
+    overview_nodes = client.get("/api/v1/cluster/overview").json()["nodes"]
+    node_payload = next(node for node in overview_nodes if node["id"] == node_a.id)
+    assert [task["name"] for task in node_payload["active_tasks"]] == ["node task a"]
     offline = client.patch(
         f"/api/v1/cluster/nodes/{node_a.id}",
         json={"status": "offline"},

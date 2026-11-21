@@ -27,6 +27,7 @@ from app.schemas import (
     CpuStats,
     MemoryStats,
     NodeInfo,
+    NodeTaskInfo,
     QuotaInfo,
     ServicesInfo,
     TaskCounts,
@@ -310,15 +311,25 @@ class ResourceService:
                 if node.status == "online":
                     node.last_seen = utcnow()
                 node_allocated = allocated_by_node.get(node.id, 0)
-                running = session.scalar(
-                    select(func.count(ResourceAllocation.id))
-                    .join(Task, Task.id == ResourceAllocation.task_id)
-                    .where(
-                        ResourceAllocation.node_id == node.id,
-                        ResourceAllocation.state == AllocationState.ACTIVE.value,
-                        Task.status == TaskStatus.RUNNING.value,
+                active_tasks = [
+                    NodeTaskInfo(
+                        id=task_id,
+                        name=task_name,
+                        progress=float(progress or 0.0),
+                        cpu_cores=int(cpu_cores),
                     )
-                ) or 0
+                    for task_id, task_name, progress, cpu_cores in session.execute(
+                        select(Task.id, Task.name, Task.progress, Task.cpu_cores)
+                        .join(ResourceAllocation, ResourceAllocation.task_id == Task.id)
+                        .where(
+                            ResourceAllocation.node_id == node.id,
+                            ResourceAllocation.state == AllocationState.ACTIVE.value,
+                            Task.status == TaskStatus.RUNNING.value,
+                        )
+                        .order_by(Task.priority.desc(), Task.started_at.asc())
+                    ).all()
+                ]
+                running = len(active_tasks)
                 nodes.append(
                     NodeInfo(
                         id=node.id,
@@ -328,7 +339,8 @@ class ResourceService:
                         total_cpus=node.total_cpus,
                         allocated_cpus=node_allocated,
                         free_cpus=max(0, node.total_cpus - node_allocated),
-                        running_tasks=int(running),
+                        running_tasks=running,
+                        active_tasks=active_tasks,
                         cpu_utilization_percent=round(
                             (node_allocated / node.total_cpus * 100) if node.total_cpus else 0.0, 1
                         ),
