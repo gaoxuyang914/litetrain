@@ -57,7 +57,7 @@ const totalCpus = computed(() => options.value?.total_cpus ?? 8)
 const quota = computed(() => options.value?.user_cpu_quota ?? 8)
 const imageSizes = [64, 96, 128, 160, 224, 320, 480, 640]
 const backendLabel = computed(() =>
-  options.value?.execution_backend === 'ray' ? 'Ray actor' : 'local process',
+  options.value?.execution_backend === 'ray' ? 'Ray 执行器' : '本地进程',
 )
 const assetsMissing = computed(
   () => options.value != null && (options.value.models.length === 0 || options.value.datasets.length === 0),
@@ -229,16 +229,16 @@ onBeforeUnmount(() => {
   <div class="page submit-page">
     <div class="page-head">
       <div class="page-heading">
-        <span class="eyebrow">Compose training</span>
+        <span class="eyebrow">新建训练</span>
         <h1 class="page-title">提交训练任务</h1>
         <p class="page-subtitle">
           选择 coco128 样本与 YOLOv8n 权重，提交后在 CPU 上训练。平台会先计算资源，再通过
-          {{ backendLabel }} 启动隔离的 worker。
+          {{ backendLabel }} 启动隔离的训练进程。
         </p>
       </div>
       <div class="page-actions">
-        <el-button :icon="Timer" @click="applyPreset('quick')">快速试跑 · 1ep</el-button>
-        <el-button :icon="MagicStick" @click="applyPreset('standard')">标准示例 · 3ep</el-button>
+        <el-button :icon="Timer" @click="applyPreset('quick')">快速试跑 · 1 轮</el-button>
+        <el-button :icon="MagicStick" @click="applyPreset('standard')">标准示例 · 3 轮</el-button>
       </div>
     </div>
 
@@ -269,7 +269,6 @@ onBeforeUnmount(() => {
         >
           <section class="panel form-section">
             <div class="section-heading">
-              <span class="section-number">01</span>
               <div>
                 <h2>任务标识</h2>
                 <p>给这次实验一个可读的名字，留空时平台会自动生成。</p>
@@ -281,7 +280,7 @@ onBeforeUnmount(() => {
                   v-model="form.name"
                   maxlength="100"
                   show-word-limit
-                  placeholder="例如：YOLOv8n · coco128 · CPU baseline"
+                  placeholder="例如：YOLOv8n / coco128 / CPU 基线"
                 />
               </el-form-item>
               <el-form-item label="备注" class="span-2">
@@ -299,12 +298,11 @@ onBeforeUnmount(() => {
 
           <section class="panel form-section">
             <div class="section-heading">
-              <span class="section-number">02</span>
               <div>
                 <h2>训练配方</h2>
-                <p>使用内置 coco128 数据集，权重会在 CPU device 上训练。</p>
+                <p>使用内置 coco128 数据集，权重会在 CPU 设备上训练。</p>
               </div>
-              <span class="section-badge"><el-icon><SetUp /></el-icon> YOLO detect</span>
+              <span class="section-badge"><el-icon><SetUp /></el-icon> YOLO 检测</span>
             </div>
 
             <el-skeleton v-if="loadingOptions" :rows="4" animated />
@@ -329,7 +327,7 @@ onBeforeUnmount(() => {
                 </el-select>
               </el-form-item>
 
-              <el-form-item label="Epochs">
+              <el-form-item label="训练轮数">
                 <el-input-number v-model="form.epochs" :min="1" :max="50" :step="1" controls-position="right" class="full" />
               </el-form-item>
 
@@ -339,11 +337,11 @@ onBeforeUnmount(() => {
                 </el-select>
               </el-form-item>
 
-              <el-form-item label="Batch size">
+              <el-form-item label="批大小">
                 <el-input-number v-model="form.batch_size" :min="1" :max="64" :step="1" controls-position="right" class="full" />
               </el-form-item>
 
-              <el-form-item label="Dataloader workers">
+              <el-form-item label="数据线程">
                 <el-input-number v-model="form.workers" :min="0" :max="8" :step="1" controls-position="right" class="full" />
                 <span class="field-hint">Windows / Ray 演示建议保持 0</span>
               </el-form-item>
@@ -352,12 +350,11 @@ onBeforeUnmount(() => {
 
           <section class="panel form-section">
             <div class="section-heading">
-              <span class="section-number">03</span>
               <div>
                 <h2>资源与调度</h2>
                 <p>平台按逻辑 CPU 核数分配资源；资源不足时任务会排队，不会超卖。</p>
               </div>
-              <span class="section-badge subtle"><el-icon><Cpu /></el-icon> CPU only</span>
+              <span class="section-badge subtle"><el-icon><Cpu /></el-icon> 仅 CPU</span>
             </div>
 
             <div class="resource-grid">
@@ -366,7 +363,7 @@ onBeforeUnmount(() => {
                   <span class="el-form-item__label">CPU 核数</span>
                   <span class="resource-value">
                     <strong>{{ form.cpu_cores }}</strong>
-                    <small>/ {{ maxCpu }} cores</small>
+                    <small>/ {{ maxCpu }} 核</small>
                   </span>
                 </div>
                 <el-slider
@@ -379,7 +376,7 @@ onBeforeUnmount(() => {
                 />
                 <div class="resource-note">
                   <span class="tag-soft" :class="coreStress.tone">{{ coreStress.label }}</span>
-                  <span>单用户配额 {{ quota }} CPU，集群上限 {{ totalCpus }} CPU</span>
+                  <span>单用户配额 {{ quota }} 核，集群上限 {{ totalCpus }} 核</span>
                 </div>
               </div>
 
@@ -394,7 +391,7 @@ onBeforeUnmount(() => {
                 <el-slider v-model="form.priority" :min="0" :max="100" :step="5" show-stops :marks="{ 0: '低', 50: '普通', 80: '高', 100: '顶' }" />
                 <div class="resource-note">
                   <span>数值越大越先被调度</span>
-                  <span class="mono">priority {{ form.priority }}</span>
+                  <span class="mono">优先级 {{ form.priority }}</span>
                 </div>
               </div>
 
@@ -410,7 +407,7 @@ onBeforeUnmount(() => {
                   />
                   <span class="field-suffix">秒</span>
                 </div>
-                <span class="field-hint">超时后平台会终止 worker 并释放资源 · 当前 {{ timeoutLabel }}</span>
+                <span class="field-hint">超时后平台会终止训练进程并释放资源 · 当前 {{ timeoutLabel }}</span>
               </div>
 
               <div class="resource-block compact-block">
@@ -419,7 +416,7 @@ onBeforeUnmount(() => {
                   <el-input-number v-model="form.max_retries" :min="0" :max="5" :step="1" controls-position="right" />
                   <span class="field-suffix">次</span>
                 </div>
-                <span class="field-hint">仅对 worker 失败自动重试；超时/取消不会重试</span>
+                <span class="field-hint">仅对训练进程失败自动重试；超时或取消不会重试</span>
               </div>
             </div>
           </section>
@@ -437,11 +434,11 @@ onBeforeUnmount(() => {
         <section class="panel preview-panel">
           <div class="preview-head">
             <div>
-              <span class="soft-label">Execution preview</span>
+              <span class="soft-label">执行预览</span>
               <h2>任务预览</h2>
             </div>
             <span class="preview-status">
-              <i></i>{{ options?.execution_backend === 'ray' ? 'RAY ACTOR' : 'LOCAL CPU' }}
+              <i></i>{{ options?.execution_backend === 'ray' ? 'Ray 执行器' : '本地 CPU' }}
             </span>
           </div>
 
@@ -449,10 +446,10 @@ onBeforeUnmount(() => {
             <div class="preview-core">
               <div class="core-orb">
                 <strong>{{ form.cpu_cores }}</strong>
-                <span>cores</span>
+                <span>核</span>
               </div>
               <div class="core-copy">
-                <strong>{{ form.epochs }} × epoch · {{ form.imgsz }} px</strong>
+                <strong>{{ form.epochs }} 轮 × {{ form.imgsz }} px</strong>
                 <span>{{ form.model }} · {{ form.dataset }}</span>
               </div>
             </div>
@@ -464,7 +461,7 @@ onBeforeUnmount(() => {
 
           <div class="preview-card">
             <div class="preview-card-head">
-              <span>Worker command</span>
+              <span>训练命令</span>
               <button type="button" title="复制命令" @click="copyCommand">
                 <el-icon><CopyDocument /></el-icon>
               </button>
@@ -478,7 +475,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="preview-equivalent" v-if="preview">
-            <span class="soft-label">Equivalent YOLO CLI</span>
+            <span class="soft-label">等价 YOLO 命令</span>
             <code>{{ preview.equivalent_yolo_command }}</code>
           </div>
 
@@ -491,7 +488,7 @@ onBeforeUnmount(() => {
             <div class="policy-row">
               <span class="dot"></span>
               <span>先到先得 + 优先级调度</span>
-              <strong>{{ totalCpus }} CPU</strong>
+              <strong>{{ totalCpus }} 核</strong>
             </div>
             <div class="policy-row">
               <span class="dot amber"></span>
@@ -500,8 +497,8 @@ onBeforeUnmount(() => {
             </div>
             <div class="policy-row">
               <span class="dot violet"></span>
-              <span>心跳 & 超时自动回收</span>
-              <strong>watchdog</strong>
+              <span>心跳与超时自动回收</span>
+              <strong>看门狗</strong>
             </div>
           </div>
 
@@ -526,7 +523,7 @@ onBeforeUnmount(() => {
           <div>
             <h3>推荐演示路径</h3>
             <p>
-              第一次使用建议「快速试跑 · 1ep」：coco128 的 128 张图在 96px 下约 20 秒完成，
+              第一次使用建议「快速试跑 · 1 轮」：coco128 的 128 张图在 96px 下约 20 秒完成，
               足以看到完整的状态流转和日志输出。
             </p>
           </div>
@@ -1155,6 +1152,243 @@ onBeforeUnmount(() => {
 
   .section-badge {
     display: none;
+  }
+}
+</style>
+
+<style scoped>
+.submit-page {
+  gap: 24px;
+}
+
+.submit-layout {
+  gap: 20px;
+}
+
+.form-column {
+  gap: 16px;
+}
+
+.form-section {
+  padding: 20px;
+}
+
+.section-heading {
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.section-heading h2 {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.section-heading p {
+  margin-top: 4px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.section-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.form-grid {
+  gap: 16px;
+}
+
+.resource-grid {
+  gap: 16px;
+}
+
+.resource-block {
+  padding: 16px;
+  border-radius: 6px;
+}
+
+.resource-label-row {
+  margin-bottom: 8px;
+}
+
+.resource-value strong {
+  font-size: 24px;
+}
+
+.resource-value small {
+  font-size: 12px;
+}
+
+.resource-note,
+.field-hint {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.resource-note .tag-soft {
+  font-size: 12px;
+}
+
+.field-suffix {
+  font-size: 13px;
+}
+
+.form-note span {
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.resource-block :deep(.el-slider__marks-text) {
+  font-size: 12px;
+}
+
+.preview-panel {
+  padding: 20px;
+  border-color: var(--border);
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.preview-head h2 {
+  margin-top: 3px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.preview-status {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.preview-summary {
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: 6px;
+}
+
+.core-orb {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+}
+
+.core-orb strong {
+  font-size: 24px;
+}
+
+.core-orb span {
+  font-size: 12px;
+}
+
+.core-copy strong {
+  font-size: 15px;
+}
+
+.core-copy span {
+  margin-top: 3px;
+  font-size: 12px;
+}
+
+.preview-meta {
+  margin-top: 14px;
+  font-size: 12px;
+}
+
+.preview-card {
+  margin-top: 14px;
+  border-radius: 6px;
+}
+
+.preview-card-head {
+  padding: 9px 12px;
+  font-size: 12px;
+}
+
+.preview-card pre {
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.preview-equivalent {
+  margin-top: 12px;
+}
+
+.preview-equivalent code {
+  font-size: 12px;
+}
+
+.preview-estimate {
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.preview-policy {
+  margin-top: 16px;
+}
+
+.policy-row {
+  padding: 10px 0;
+  font-size: 13px;
+}
+
+.policy-row strong {
+  font-size: 12px;
+}
+
+.submit-button {
+  min-height: 48px;
+  margin-top: 16px;
+  font-size: 15px;
+}
+
+.submit-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.tips-card {
+  padding: 18px;
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+.tips-card h3 {
+  font-size: 16px;
+}
+
+.tips-card p {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.preset-note {
+  font-size: 12px;
+}
+
+@media (max-width: 1100px) {
+  .preview-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 760px) {
+  .form-section {
+    padding: 16px;
+  }
+
+  .section-heading h2 {
+    font-size: 19px;
+  }
+
+  .preview-panel {
+    padding: 16px;
   }
 }
 </style>

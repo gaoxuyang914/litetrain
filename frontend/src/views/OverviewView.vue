@@ -194,19 +194,19 @@ onBeforeUnmount(() => {
   <div class="page overview-page">
     <div class="page-head">
       <div class="page-heading">
-        <span class="eyebrow">Cluster overview</span>
+        <span class="eyebrow">集群运行视图</span>
         <div class="title-row">
           <h1 class="page-title">集群总览</h1>
-          <span class="title-live"><i></i>LIVE</span>
+          <span class="title-live"><i></i>实时</span>
         </div>
         <p class="page-subtitle">
           查看逻辑 CPU 配额、队列压力与 Ray 执行器状态。资源释放后，等待中的任务会自动被调度。
         </p>
         <div class="page-signals">
-          <span><i class="signal-dot"></i>{{ onlineNodes.length }} nodes online</span>
-          <span>Ray {{ services?.ray_cpus ?? '—' }} CPU</span>
-          <span>{{ overview?.tasks.pending ?? 0 }} queued</span>
-          <span class="mono">uptime {{ formatDuration(overview?.uptime_seconds ?? 0) }}</span>
+          <span><i class="signal-dot"></i>{{ onlineNodes.length }} 个节点在线</span>
+          <span>Ray {{ services?.ray_cpus ?? '—' }} 核</span>
+          <span>{{ overview?.tasks.pending ?? 0 }} 个排队</span>
+          <span class="mono">已运行 {{ formatDuration(overview?.uptime_seconds ?? 0) }}</span>
         </div>
       </div>
       <div class="page-actions">
@@ -251,8 +251,8 @@ onBeforeUnmount(() => {
         <article class="metric metric-cpu">
           <div class="metric-kicker">
             <span class="metric-icon"><el-icon><Cpu /></el-icon></span>
-            CPU ALLOCATION
-            <span class="metric-tag">REALTIME</span>
+            CPU 配额
+            <span class="metric-tag">实时</span>
           </div>
           <div class="metric-cpu-main">
             <div class="cpu-ring" :style="{ background: cpuRingBackground }">
@@ -263,28 +263,28 @@ onBeforeUnmount(() => {
             </div>
             <div class="cpu-ring-copy">
               <strong>{{ formatPercent(cpu?.utilization_percent) }}</strong>
-              <span>cluster utilization</span>
-              <em>{{ cpu?.available ?? 0 }} cores available</em>
+              <span>集群利用率</span>
+              <em>{{ cpu?.available ?? 0 }} 核可用</em>
             </div>
           </div>
           <div class="metric-meter"><span :style="{ width: `${cpu?.utilization_percent ?? 0}%` }"></span></div>
           <div class="metric-foot">
-            <span>{{ onlineNodes.length }} nodes · {{ overview.tasks.pending }} queued</span>
-            <strong>{{ overview.tasks.running }} tasks live</strong>
+            <span>{{ onlineNodes.length }} 个节点，{{ overview.tasks.pending }} 个排队</span>
+            <strong>{{ overview.tasks.running }} 个任务运行中</strong>
           </div>
         </article>
 
         <article class="metric metric-queue">
           <div class="metric-kicker">
             <span class="metric-icon amber"><el-icon><Odometer /></el-icon></span>
-            QUEUE PRESSURE
-            <span class="metric-tag">LIVE</span>
+            任务队列
+            <span class="metric-tag">实时</span>
           </div>
           <div class="queue-main">
             <strong>{{ overview.tasks.running }}</strong>
             <span>运行中</span>
             <em>+{{ overview.tasks.pending }}</em>
-            <span class="queue-waiting">waiting</span>
+            <span class="queue-waiting">等待中</span>
           </div>
           <div class="queue-strip">
             <span
@@ -296,19 +296,19 @@ onBeforeUnmount(() => {
           </div>
           <div class="metric-foot">
             <span>累计 {{ overview.tasks.total }} 个任务</span>
-            <span>{{ overview.tasks.succeeded }} 成功</span>
+            <span>{{ overview.tasks.succeeded }} 个成功</span>
           </div>
         </article>
 
         <article class="metric metric-host">
           <div class="metric-kicker">
             <span class="metric-icon copper"><el-icon><Monitor /></el-icon></span>
-            HOST LOAD
-            <span class="metric-tag">{{ cpu?.host_logical_cores ?? '—' }} THREADS</span>
+            主机负载
+            <span class="metric-tag">{{ cpu?.host_logical_cores ?? '—' }} 线程</span>
           </div>
           <div class="host-main">
             <strong>{{ formatPercent(cpu?.host_percent) }}</strong>
-            <span>host CPU</span>
+            <span>主机 CPU</span>
           </div>
           <div class="host-bars" aria-hidden="true">
             <i
@@ -319,12 +319,12 @@ onBeforeUnmount(() => {
             ></i>
           </div>
           <div class="host-scale">
-            <span>{{ formatPercent(cpu?.process_percent) }} process</span>
-            <span>{{ formatPercent(overview.memory.percent, 0) }} memory</span>
+            <span>{{ formatPercent(cpu?.process_percent) }} 进程</span>
+            <span>{{ formatPercent(overview.memory.percent, 0) }} 内存</span>
           </div>
           <div class="metric-foot">
             <span>{{ memoryGB.used }} / {{ memoryGB.total }} GB</span>
-            <span class="copper-copy">{{ memoryGB.available }} GB available</span>
+            <span class="copper-copy">{{ memoryGB.available }} GB 可用</span>
           </div>
         </article>
       </section>
@@ -333,20 +333,20 @@ onBeforeUnmount(() => {
         <div class="panel topology-panel">
           <div class="panel-head">
             <div>
-              <h2><span class="head-index">01</span> LIVE CLUSTER TOPOLOGY</h2>
-              <p class="panel-caption">调度决策、节点容量与正在运行的 Task</p>
+              <h2>集群拓扑</h2>
+              <p class="panel-caption">调度器、节点容量与正在运行的训练任务</p>
             </div>
             <div class="panel-head-actions">
-              <span class="tag-soft accent"><span class="dot"></span>{{ onlineNodes.length }} online</span>
+              <span class="tag-soft accent"><span class="dot"></span>{{ onlineNodes.length }} 个在线</span>
               <el-button size="small" :icon="Share" @click="openTopologyDialog">多节点模拟</el-button>
             </div>
           </div>
 
           <div class="topology-stage">
             <div class="topology-hub">
-              <span class="hub-label"><i></i>SCHEDULER · PRIORITY QUEUE</span>
+              <span class="hub-label"><i></i>调度器 · 优先级队列</span>
               <strong>Ray Head</strong>
-              <small>{{ services?.ray_address ?? '127.0.0.1:6380' }} · {{ services?.ray_cpus ?? '—' }} CPU</small>
+              <small>{{ services?.ray_address ?? '127.0.0.1:6380' }} · {{ services?.ray_cpus ?? '—' }} 核</small>
               <span class="hub-version">v{{ services?.ray_version ?? '—' }}</span>
             </div>
             <div class="topology-bus"></div>
@@ -364,12 +364,12 @@ onBeforeUnmount(() => {
                     <span>{{ node.hostname }}</span>
                   </div>
                   <span class="topology-status" :class="nodeStatusTone(node.status)">
-                    <i></i>{{ node.status === 'online' ? 'ONLINE' : 'OFFLINE' }}
+                    <i></i>{{ node.status === 'online' ? '在线' : '离线' }}
                   </span>
                 </div>
                 <div class="topology-node-meter">
                   <div>
-                    <span>{{ node.allocated_cpus }} / {{ node.total_cpus }} cores</span>
+                    <span>{{ node.allocated_cpus }} / {{ node.total_cpus }} 核</span>
                     <b>{{ formatPercent(node.cpu_utilization_percent, 0) }}</b>
                   </div>
                   <div class="meter compact"><span :style="{ width: `${node.cpu_utilization_percent}%` }"></span></div>
@@ -387,21 +387,21 @@ onBeforeUnmount(() => {
                     <b>{{ Math.round(task.progress) }}%</b>
                   </button>
                   <span v-if="node.active_tasks.length > 3" class="topology-task-more">
-                    +{{ node.active_tasks.length - 3 }} running
+                    +{{ node.active_tasks.length - 3 }} 个运行中
                   </span>
                   <span v-if="!node.active_tasks.length" class="topology-idle">
-                    {{ node.status === 'online' ? 'IDLE · awaiting task' : 'STANDBY · no allocation' }}
+                    {{ node.status === 'online' ? '空闲，等待任务' : '待机，无分配' }}
                   </span>
                 </div>
                 <div class="topology-node-foot">
-                  <span>HOST {{ formatPercent(node.host_percent) }}</span>
+                  <span>主机 {{ formatPercent(node.host_percent) }}</span>
                   <button
                     type="button"
                     class="topology-node-action"
                     :disabled="nodeActionBusy === node.id"
                     @click.stop="toggleNode(node)"
                   >
-                    {{ node.status === 'online' ? '下线' : '上线' }} ↗
+                    {{ node.status === 'online' ? '下线' : '上线' }}
                   </button>
                 </div>
               </article>
@@ -410,47 +410,47 @@ onBeforeUnmount(() => {
 
           <div class="node-policy">
             <span><el-icon><Timer /></el-icon> 心跳超时自动回收</span>
-            <span>调度粒度为 1 CPU 核</span>
-            <span>Ray 逻辑资源 {{ services?.ray_cpus ?? '—' }} CPU</span>
-            <span class="node-policy-legend"><i></i>running task <i class="idle"></i>idle</span>
+            <span>调度粒度为 1 个 CPU 核</span>
+            <span>Ray 逻辑资源 {{ services?.ray_cpus ?? '—' }} 核</span>
+            <span class="node-policy-legend"><i></i>运行中 <i class="idle"></i>空闲</span>
           </div>
         </div>
 
         <div class="side-stack">
           <div class="panel services-panel">
             <div class="panel-head">
-              <h2><span class="head-index">02</span> 服务与配额</h2>
+              <h2>服务与配额</h2>
               <span class="tag-soft" :class="{ accent: services?.ray_connected && services?.redis_connected }">
-                <span class="dot"></span>control plane
+                <span class="dot"></span>控制平面
               </span>
             </div>
             <div class="panel-body service-body">
               <div class="service-row">
                 <div class="service-symbol ray"><span>R</span></div>
                 <div class="service-copy">
-                  <strong>Ray execution</strong>
+                  <strong>Ray 执行器</strong>
                   <span>{{ services?.ray_address }} · v{{ services?.ray_version ?? '—' }}</span>
                 </div>
                 <span class="service-state" :class="{ ok: services?.ray_connected }">
-                  {{ services?.ray_connected ? 'CONNECTED' : 'LOCAL FALLBACK' }}
+                  {{ services?.ray_connected ? '已连接' : '本地回退' }}
                 </span>
               </div>
               <div class="service-row">
                 <div class="service-symbol redis"><span>R</span></div>
                 <div class="service-copy">
-                  <strong>Redis coordination</strong>
-                  <span>scheduler lock · pub/sub events · v{{ services?.redis_version ?? '—' }}</span>
+                  <strong>Redis 协调</strong>
+                  <span>调度锁、事件订阅 · v{{ services?.redis_version ?? '—' }}</span>
                 </div>
                 <span class="service-state" :class="{ ok: services?.redis_connected }">
-                  {{ services?.redis_connected ? 'CONNECTED' : 'DEGRADED' }}
+                  {{ services?.redis_connected ? '已连接' : '已降级' }}
                 </span>
               </div>
 
               <div class="quota-box">
                 <div class="row between">
-                  <span class="soft-label">Single user quota</span>
+                  <span class="soft-label">单用户配额</span>
                   <span class="mono quota-num">
-                    {{ quota?.used_cpus ?? 0 }} / {{ quota?.limit_cpus ?? 0 }} CPU
+                    {{ quota?.used_cpus ?? 0 }} / {{ quota?.limit_cpus ?? 0 }} 核
                   </span>
                 </div>
                 <div class="capacity-slots" v-if="capacitySlots.length">
@@ -475,7 +475,7 @@ onBeforeUnmount(() => {
               </div>
 
               <div class="service-foot-row">
-                <span><el-icon><DataLine /></el-icon> 调度器 {{ services?.execution_mode === 'auto' ? 'auto' : services?.execution_mode }}</span>
+                <span><el-icon><DataLine /></el-icon> 调度器 {{ services?.execution_mode === 'auto' ? '自动' : services?.execution_mode }}</span>
                 <span><el-icon><Timer /></el-icon> 服务运行 {{ formatDuration(overview.uptime_seconds) }}</span>
               </div>
             </div>
@@ -483,8 +483,8 @@ onBeforeUnmount(() => {
 
           <div class="panel queue-panel">
             <div class="panel-head">
-              <h2><span class="head-index">03</span> 状态分布</h2>
-              <span class="panel-caption">all time</span>
+              <h2>状态分布</h2>
+              <span class="panel-caption">全部时间</span>
             </div>
             <div class="panel-body status-distribution">
               <div v-for="row in statusRows" :key="row.key" class="dist-row">
@@ -507,7 +507,7 @@ onBeforeUnmount(() => {
       <section class="panel recent-panel">
         <div class="panel-head">
           <div>
-            <h2><span class="head-index">04</span> 最近任务</h2>
+            <h2>最近任务</h2>
             <p class="panel-caption">最近 6 个提交的任务，点击行查看日志与指标</p>
           </div>
           <el-button text :icon="ArrowRight" @click="router.push({ name: 'tasks' })">全部任务</el-button>
@@ -531,7 +531,7 @@ onBeforeUnmount(() => {
           </el-table-column>
           <el-table-column label="配置" min-width="160">
             <template #default="{ row }">
-              <span class="mono muted small">{{ row.epochs }}ep · {{ row.imgsz }}px · {{ row.batch_size }}bs</span>
+              <span class="mono muted small">{{ row.epochs }} 轮，{{ row.imgsz }} px，批 {{ row.batch_size }}</span>
             </template>
           </el-table-column>
           <el-table-column label="CPU" width="76" align="center">
@@ -562,16 +562,15 @@ onBeforeUnmount(() => {
       <el-dialog v-model="topologyOpen" title="多节点集群模拟" width="560px">
         <div class="topology-intro">
           <p>
-            把平台的 <strong>{{ cpuBudget }} CPU</strong> 预算拆成多个逻辑节点，调度器会按节点空闲容量与负载分配任务。
+            把平台的 <strong>{{ cpuBudget }} 个 CPU 核</strong> 预算拆成多个逻辑节点，调度器会按节点空闲容量与负载分配任务。
           </p>
           <p>任务仍在本机 Ray 集群执行；该功能用于演示多节点资源账本、节点亲和与容量碎片化。</p>
         </div>
         <div class="topology-rows">
           <div v-for="(node, index) in topologyDraft" :key="index" class="topology-row">
-            <span class="topology-index mono">{{ String(index + 1).padStart(2, '0') }}</span>
             <el-input v-model="node.name" placeholder="节点名称" maxlength="60" />
             <el-input-number v-model="node.total_cpus" :min="1" :max="cpuBudget" controls-position="right" />
-            <span class="topology-unit">CPU</span>
+            <span class="topology-unit">核</span>
             <el-button text :disabled="topologyDraft.length <= 1" @click="removeTopologyRow(index)">
               移除
             </el-button>
@@ -581,7 +580,7 @@ onBeforeUnmount(() => {
         <div class="topology-summary">
           <span>模拟总容量</span>
           <strong class="mono" :class="{ overloaded: topologyTotal > cpuBudget }">
-            {{ topologyTotal }} / {{ cpuBudget }} CPU
+            {{ topologyTotal }} / {{ cpuBudget }} 核
           </strong>
         </div>
         <template #footer>
@@ -795,11 +794,11 @@ onBeforeUnmount(() => {
 }
 
 .meter.violet span {
-  background: linear-gradient(90deg, var(--violet), #a59bff);
+  background: var(--copper);
 }
 
 .meter.blue span {
-  background: linear-gradient(90deg, #4f8dd6, #77b4f2);
+  background: var(--blue);
 }
 
 .meter.compact {
@@ -2537,5 +2536,605 @@ html.dark .accent-card {
   .node-policy-legend {
     display: none;
   }
+}
+</style>
+
+<style scoped>
+.overview-page {
+  gap: 24px;
+}
+
+.cluster-alert {
+  border-radius: var(--radius-sm);
+}
+
+.alert-copy {
+  font-size: 14px;
+}
+
+.sync-chip {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 13px;
+}
+
+.sync-chip .el-icon {
+  font-size: 15px;
+}
+
+.title-live {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.page-signals {
+  gap: 8px 16px;
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.page-signals span {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+}
+
+.metric-deck {
+  gap: 16px;
+}
+
+.metric {
+  min-height: 184px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: none;
+  transition: none;
+}
+
+.metric:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.metric-cpu {
+  border-color: var(--border);
+  background: var(--panel);
+  box-shadow: none;
+  color: var(--text);
+}
+
+.metric-cpu::before,
+.metric-cpu::after {
+  display: none;
+}
+
+.metric-kicker {
+  gap: 9px;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.metric-tag {
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.metric-cpu .metric-tag {
+  border-color: var(--border);
+  background: var(--panel-soft);
+  color: var(--text-muted);
+}
+
+.metric-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+}
+
+.metric-cpu-main {
+  gap: 18px;
+  margin-top: 16px;
+}
+
+.cpu-ring {
+  width: 82px;
+  height: 82px;
+  box-shadow: none;
+}
+
+.cpu-ring::after {
+  inset: 7px;
+}
+
+.cpu-ring-inner strong {
+  color: var(--text);
+  font-size: 21px;
+}
+
+.cpu-ring-inner span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.cpu-ring-copy strong {
+  color: var(--text);
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+.cpu-ring-copy span {
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.cpu-ring-copy em {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.metric-cpu .metric-meter {
+  margin-top: 14px;
+  background: var(--panel-soft);
+}
+
+.metric-cpu .metric-meter span {
+  background: var(--accent);
+}
+
+.metric-cpu .metric-foot {
+  margin-top: 11px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.metric-cpu .metric-foot strong {
+  color: var(--text-secondary);
+}
+
+.queue-main {
+  gap: 7px;
+  margin-top: 18px;
+}
+
+.queue-main strong {
+  font-size: 44px;
+  letter-spacing: -0.05em;
+}
+
+.queue-main span {
+  font-size: 14px;
+}
+
+.queue-main em {
+  font-size: 18px;
+}
+
+.queue-waiting {
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.queue-strip {
+  height: 6px;
+  margin-top: 16px;
+}
+
+.metric-foot {
+  margin-top: 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.host-main {
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.host-main strong {
+  font-size: 44px;
+  letter-spacing: -0.05em;
+}
+
+.host-main span {
+  font-family: var(--font);
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.host-bars {
+  height: 32px;
+  gap: 4px;
+  margin-top: 13px;
+}
+
+.metric-host .host-bars i {
+  width: 6px;
+}
+
+.host-scale {
+  margin-top: 9px;
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.copper-copy {
+  font-size: 12px;
+}
+
+.topology-panel {
+  border-color: #23372b;
+  border-radius: var(--radius);
+  background: #0c1a13;
+  box-shadow: none;
+}
+
+.topology-panel::before {
+  display: none;
+}
+
+.topology-panel .panel-head {
+  border-bottom-color: rgba(255, 255, 255, 0.09);
+}
+
+.topology-panel .panel-head h2 {
+  color: #eef7f1;
+  font-size: 18px;
+}
+
+.topology-panel .panel-caption {
+  color: #8ca797;
+  font-size: 14px;
+}
+
+.topology-panel .tag-soft {
+  border-color: rgba(75, 195, 148, 0.24);
+  background: rgba(75, 195, 148, 0.08);
+  color: #9fe0c3;
+  font-size: 12px;
+}
+
+.topology-panel .el-button {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #dce9e1;
+}
+
+.topology-stage {
+  padding: 24px 20px 18px;
+  background-image:
+    linear-gradient(rgba(147, 184, 164, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(147, 184, 164, 0.045) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.topology-hub {
+  min-width: 260px;
+  padding: 14px 20px;
+  border: 1px solid rgba(122, 198, 163, 0.3);
+  border-radius: 8px;
+  background: #11231a;
+  box-shadow: none;
+}
+
+.hub-label {
+  font-family: var(--font);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.topology-hub strong {
+  margin-top: 4px;
+  font-size: 19px;
+}
+
+.topology-hub small {
+  margin-top: 3px;
+  font-size: 12px;
+}
+
+.hub-version {
+  margin-top: 8px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+.topology-bus {
+  height: 20px;
+}
+
+.topology-nodes {
+  gap: 12px;
+  margin-top: 0;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.topology-node {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: #0f1f17;
+  box-shadow: none;
+}
+
+.topology-node.online:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #0f1f17;
+}
+
+.topology-node-head {
+  gap: 9px;
+}
+
+.topology-node-head > div {
+  min-width: 0;
+}
+
+.topology-node-head strong {
+  font-size: 14px;
+}
+
+.topology-node-head > div span {
+  font-size: 12px;
+}
+
+.topology-node-glyph {
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+}
+
+.topology-status {
+  flex: none;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: var(--font);
+  font-size: 11px;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.topology-node-meter .meter span {
+  background: #5fd0a5;
+  box-shadow: none;
+}
+
+.topology-node-meter {
+  margin-top: 13px;
+}
+
+.topology-node-meter div:first-child {
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.topology-node-meter b {
+  font-size: 12px;
+}
+
+.topology-tasks {
+  gap: 5px;
+  min-height: 58px;
+  margin-top: 11px;
+  padding-top: 10px;
+}
+
+.topology-task {
+  min-height: 30px;
+  padding: 4px 7px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.topology-task span {
+  font-size: 12px;
+}
+
+.topology-task b {
+  font-size: 12px;
+}
+
+.topology-task-more,
+.topology-idle {
+  padding: 5px 1px;
+  font-size: 12px;
+}
+
+.topology-node-foot {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.topology-node-action {
+  font-size: 12px;
+}
+
+.node-policy {
+  padding: 12px 20px 14px;
+  font-size: 12px;
+}
+
+.service-body {
+  padding: 16px 20px 18px;
+}
+
+.service-row {
+  padding: 11px 0;
+}
+
+.service-symbol {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.service-copy strong {
+  font-size: 14px;
+}
+
+.service-copy span {
+  font-size: 12px;
+}
+
+.service-state {
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.quota-box {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 6px;
+}
+
+.quota-num {
+  font-size: 12px;
+}
+
+.quota-foot code {
+  font-size: 12px;
+}
+
+.quota-foot {
+  margin-top: 9px;
+  font-size: 12px;
+}
+
+.service-foot-row {
+  margin-top: 13px;
+  font-size: 12px;
+}
+
+.status-distribution {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  padding: 18px 20px;
+}
+
+.dist-label {
+  font-size: 13px;
+}
+
+.dist-row strong {
+  font-size: 13px;
+}
+
+.recent-table :deep(td) {
+  font-size: 14px;
+}
+
+.recent-task strong {
+  font-size: 14px;
+}
+
+.recent-task .mono {
+  font-size: 12px;
+}
+
+.recent-glyph {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+}
+
+.task-count-pill {
+  font-size: 12px;
+}
+
+.recent-table :deep(.el-table__cell) {
+  font-size: 14px;
+}
+
+@media (max-width: 1180px) {
+  .metric {
+    min-height: 170px;
+  }
+}
+
+@media (max-width: 760px) {
+  .metric {
+    padding: 16px;
+  }
+
+  .host-main strong,
+  .queue-main strong {
+    font-size: 38px;
+  }
+
+  .topology-stage {
+    padding: 18px 14px 14px;
+  }
+
+  .topology-hub {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .topology-node-head strong {
+    font-size: 14px;
+  }
+
+  .node-policy {
+    line-height: 1.8;
+  }
+}
+</style>
+
+<style scoped>
+.overview-page .panel-caption {
+  font-size: 14px;
+}
+
+.queue-main > span:not(.queue-waiting) {
+  font-size: 14px;
+}
+
+.metric-host .host-main span {
+  font-family: var(--font);
+  font-size: 13px;
+}
+
+.quota-foot strong {
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.recent-table .small,
+.recent-table .mono.muted {
+  font-size: 12px;
+}
+
+.recent-table :deep(.el-table__cell) {
+  font-size: 14px;
 }
 </style>

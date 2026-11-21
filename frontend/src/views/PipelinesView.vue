@@ -57,9 +57,9 @@ const form = reactive<PipelineCreatePayload>({
 
 const hasActive = computed(() => pipelines.value.some((item) => !isTerminal(item.status)))
 const stageDefinitions = [
-  { key: 'preprocess', label: '预处理', hint: '校验数据集 / 打包子集', index: '01' },
-  { key: 'train', label: '训练', hint: 'YOLOv8n · CPU', index: '02' },
-  { key: 'evaluate', label: '评估', hint: 'best.pt · val split', index: '03' },
+  { key: 'preprocess', label: '预处理', hint: '校验数据集，打包子集', index: '01' },
+  { key: 'train', label: '训练', hint: 'YOLOv8n，CPU', index: '02' },
+  { key: 'evaluate', label: '评估', hint: 'best.pt，验证集', index: '03' },
 ]
 
 const stageMeta: Record<string, { label: string; tone: string }> = {
@@ -196,7 +196,7 @@ function stageHint(pipeline: Pipeline, key: string) {
 
 function pipelineConfigSummary(pipeline: Pipeline) {
   const cfg = pipeline.config
-  return `${cfg.epochs}ep · ${cfg.imgsz}px · ${cfg.cpu_cores} CPU · ${cfg.max_images} imgs`
+  return `${cfg.epochs} 轮，${cfg.imgsz} px，${cfg.cpu_cores} 核，${cfg.max_images} 张图`
 }
 
 onMounted(async () => {
@@ -215,10 +215,10 @@ onBeforeUnmount(() => {
   <div class="page pipelines-page">
     <div class="page-head">
       <div class="page-heading">
-        <span class="eyebrow">Orchestration</span>
+        <span class="eyebrow">流水线编排</span>
         <h1 class="page-title">训练流水线</h1>
         <p class="page-subtitle">
-          预处理 → 训练 → 评估串行编排。每个阶段都是独立的 CPU Task，复用资源调度、心跳、日志、重试和失败回收。
+          预处理 → 训练 → 评估串行编排。每个阶段都是独立的 CPU 任务，复用资源调度、心跳、日志、重试和失败回收。
         </p>
       </div>
       <div class="page-actions">
@@ -236,10 +236,10 @@ onBeforeUnmount(() => {
     <section class="panel pipeline-guide">
       <div class="guide-head">
         <div>
-          <span class="soft-label">Pipeline anatomy</span>
+          <span class="soft-label">流水线结构</span>
           <h2>一个流水线，三个可审计阶段</h2>
         </div>
-        <span class="tag-soft accent"><span class="dot"></span>serial · resumable</span>
+        <span class="tag-soft accent"><span class="dot"></span>串行执行 · 可恢复</span>
       </div>
       <div class="guide-stages">
         <div v-for="(stage, index) in stageDefinitions" :key="stage.key" class="guide-stage">
@@ -251,7 +251,7 @@ onBeforeUnmount(() => {
           <span v-if="index < stageDefinitions.length - 1" class="guide-arrow">→</span>
         </div>
         <div class="guide-artifacts">
-          <span class="soft-label">Outputs</span>
+          <span class="soft-label">阶段产物</span>
           <strong>dataset.yaml + best.pt</strong>
           <span>自动登记到数据与产物页</span>
         </div>
@@ -401,13 +401,13 @@ onBeforeUnmount(() => {
               <el-option v-for="model in options?.models ?? []" :key="model" :label="model" :value="model" />
             </el-select>
           </el-form-item>
-          <el-form-item label="Epochs">
+          <el-form-item label="训练轮数">
             <el-input-number v-model="form.epochs" :min="1" :max="20" controls-position="right" class="full" />
           </el-form-item>
           <el-form-item label="Image size">
             <el-input-number v-model="form.imgsz" :min="64" :max="640" :step="32" controls-position="right" class="full" />
           </el-form-item>
-          <el-form-item label="Batch">
+          <el-form-item label="批大小">
             <el-input-number v-model="form.batch_size" :min="1" :max="32" controls-position="right" class="full" />
           </el-form-item>
           <el-form-item label="预处理图片数上限">
@@ -468,13 +468,13 @@ onBeforeUnmount(() => {
                   <strong>{{ stage.task.name }}</strong>
                   <span class="mono">{{ stage.task.id }} · {{ formatDuration(stage.task.runtime_seconds) }}</span>
                 </div>
-                <el-button size="small" text @click="openTask(stage.task.id)">打开任务 ↗</el-button>
+                <el-button size="small" text @click="openTask(stage.task.id)">打开任务</el-button>
               </div>
-              <span v-else class="detail-waiting">该阶段尚未创建 Task</span>
+              <span v-else class="detail-waiting">该阶段尚未创建任务</span>
             </div>
           </div>
           <div class="detail-artifacts">
-            <span class="soft-label">Artifacts</span>
+            <span class="soft-label">产物</span>
             <div v-if="detail.artifacts.length" class="artifact-list">
               <button v-for="artifact in detail.artifacts" :key="artifact.id" type="button" @click="openArtifact(artifact)">
                 <el-icon><Download /></el-icon>
@@ -682,8 +682,8 @@ onBeforeUnmount(() => {
 }
 
 .pipeline-meta span + span::before {
-  content: '·';
-  margin-right: 7px;
+  content: '，';
+  margin-right: 4px;
   color: var(--border-strong);
 }
 
@@ -1420,6 +1420,237 @@ onBeforeUnmount(() => {
   }
 
   .pipeline-card {
+    padding: 16px;
+  }
+}
+</style>
+
+<style scoped>
+.pipelines-page {
+  gap: 24px;
+}
+
+.auto-refresh {
+  height: 40px;
+  font-size: 13px;
+}
+
+.pipeline-guide {
+  padding: 20px;
+  overflow: hidden;
+  border: 1px solid #263a2e;
+  border-radius: var(--radius);
+  background: #0c1a13;
+  box-shadow: none;
+}
+
+.pipeline-guide::before,
+.pipeline-guide::after {
+  display: none;
+}
+
+.pipeline-guide .guide-head h2 {
+  margin-top: 4px;
+  color: #eef7f1;
+  font-family: var(--font);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.pipeline-guide .soft-label {
+  color: #91ab9c;
+  font-size: 12px;
+}
+
+.pipeline-guide .tag-soft.accent {
+  border-color: rgba(75, 195, 148, 0.25);
+  background: rgba(75, 195, 148, 0.08);
+  color: #9fe0c3;
+  font-size: 12px;
+  box-shadow: none;
+}
+
+.guide-stages {
+  margin-top: 18px;
+}
+
+.guide-stage {
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.pipeline-guide .guide-index {
+  color: #77b999;
+  font-size: 12px;
+  text-shadow: none;
+}
+
+.pipeline-guide .guide-stage strong {
+  color: #e6fff4;
+  font-size: 14px;
+}
+
+.pipeline-guide .guide-stage span:not(.guide-index):not(.guide-arrow) {
+  color: #8ca797;
+  font-size: 12px;
+}
+
+.pipeline-guide .guide-arrow {
+  color: #5d806d;
+}
+
+.guide-artifacts {
+  border-left-color: rgba(255, 255, 255, 0.1);
+}
+
+.pipeline-guide .guide-artifacts strong {
+  color: #b7d9c7;
+  font-size: 14px;
+  text-shadow: none;
+}
+
+.pipeline-guide .guide-artifacts > span:last-child {
+  color: #8ca797;
+  font-size: 12px;
+}
+
+.pipeline-card {
+  padding: 20px;
+  border-radius: var(--radius);
+  box-shadow: none;
+  transition: border-color 0.16s ease;
+}
+
+.pipeline-card::before {
+  display: none;
+}
+
+.pipeline-card:hover {
+  border-color: var(--border-strong);
+  transform: none;
+  box-shadow: none;
+}
+
+.pipeline-card.is-running,
+.pipeline-card.is-failed,
+.pipeline-card.is-succeeded {
+  box-shadow: none;
+}
+
+.pipeline-title-block h2 {
+  font-family: var(--font);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.pipeline-id {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.pipeline-time {
+  font-size: 12px;
+}
+
+.pipeline-progress-row .mono {
+  font-size: 12px;
+}
+
+.pipeline-meta {
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.pipeline-progress-row {
+  margin: 16px 0;
+}
+
+.pipeline-progress {
+  height: 6px;
+  border-radius: 3px;
+}
+
+.pipeline-progress span {
+  border-radius: 3px;
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.stage-row {
+  gap: 12px;
+}
+
+.stage-tile {
+  padding: 12px;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.stage-tile:hover {
+  border-color: var(--border-strong);
+}
+
+.stage-index {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.stage-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.stage-status {
+  font-size: 12px;
+}
+
+.stage-hint,
+.stage-task-link {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.stage-connector {
+  color: var(--border-strong);
+}
+
+.pipeline-foot {
+  margin-top: 14px;
+  padding-top: 12px;
+  font-size: 13px;
+}
+
+.pipeline-failure {
+  font-size: 13px;
+}
+
+.detail-stage {
+  border-radius: 6px;
+}
+
+.detail-task strong {
+  font-size: 13px;
+}
+
+.detail-task .mono,
+.detail-waiting {
+  font-size: 12px;
+}
+
+.create-intro {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.pipeline-pager {
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .pipeline-guide {
     padding: 16px;
   }
 }

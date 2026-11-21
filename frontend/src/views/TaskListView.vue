@@ -186,7 +186,7 @@ onBeforeUnmount(() => {
   <div class="page task-list-page">
     <div class="page-head">
       <div class="page-heading">
-        <span class="eyebrow">Training jobs</span>
+        <span class="eyebrow">训练任务</span>
         <h1 class="page-title">任务列表</h1>
         <p class="page-subtitle">
           所有训练任务按提交时间倒序排列。状态筛选、任务 ID 搜索和分页都直接由后端 SQLite 查询支持。
@@ -245,7 +245,7 @@ onBeforeUnmount(() => {
     <section class="panel table-panel">
       <div class="table-meta">
         <div>
-          <span class="soft-label">Job index</span>
+          <span class="soft-label">任务索引</span>
           <p>
             <strong>{{ response?.total ?? 0 }}</strong> 个任务
             <span v-if="appliedSearch" class="filter-note">
@@ -295,7 +295,7 @@ onBeforeUnmount(() => {
           <el-table-column label="训练配置" min-width="145">
             <template #default="{ row }">
               <div class="config-cell">
-                <span class="mono">{{ row.epochs }} ep · {{ row.imgsz }} px · b{{ row.batch_size }}</span>
+                <span class="mono">{{ row.epochs }} 轮 · {{ row.imgsz }} px · 批 {{ row.batch_size }}</span>
                 <span class="config-model">{{ row.model }}</span>
               </div>
             </template>
@@ -393,8 +393,8 @@ onBeforeUnmount(() => {
               <StatusBadge :status="row.status" />
             </div>
             <div class="task-mobile-meta">
-              <span class="mono">{{ row.epochs }}ep · {{ row.imgsz }}px · b{{ row.batch_size }}</span>
-              <span class="cpu-chip">{{ row.cpu_cores }} CPU</span>
+              <span class="mono">{{ row.epochs }} 轮 · {{ row.imgsz }} px · 批 {{ row.batch_size }}</span>
+              <span class="cpu-chip">{{ row.cpu_cores }} 核</span>
               <span class="priority-chip" :class="priorityTone(row.priority)">P{{ row.priority }}</span>
             </div>
             <div class="task-mobile-foot">
@@ -1031,6 +1031,139 @@ onBeforeUnmount(() => {
 
   .pagination-bar {
     padding-top: 0;
+  }
+}
+</style>
+
+<style scoped>
+.task-list-page {
+  gap: 24px;
+}
+
+.auto-refresh {
+  height: 40px;
+  font-size: 13px;
+}
+
+.filter-panel {
+  padding: 14px 16px;
+}
+
+.status-chip {
+  min-height: 32px;
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
+.chip-count {
+  font-size: 12px;
+}
+
+.terminal-mark {
+  font-size: 12px;
+}
+
+.search-input {
+  min-width: 240px;
+}
+
+.table-meta {
+  padding: 16px 18px;
+}
+
+.table-meta p {
+  margin-top: 4px;
+  font-size: 14px;
+}
+
+.table-meta p strong {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.table-hint,
+.filter-note {
+  font-size: 12px;
+}
+
+.task-table :deep(td) {
+  font-size: 14px;
+}
+
+.task-title-line strong {
+  font-size: 14px;
+}
+
+.task-id,
+.task-id .mono {
+  font-size: 12px;
+}
+
+.config-cell .mono,
+.config-model {
+  font-size: 12px;
+}
+
+.cpu-chip,
+.priority-chip {
+  font-size: 12px;
+}
+
+.progress-value,
+.progress-sub,
+.pending-cell,
+.duration-value,
+.submitted-cell {
+  font-size: 12px;
+}
+
+.row-action {
+  width: 34px;
+  height: 34px;
+}
+
+.terminal-mark {
+  font-size: 11px;
+}
+
+.pagination-note {
+  font-size: 12px;
+}
+
+.task-mobile-card {
+  padding: 14px;
+}
+
+.task-mobile-name strong {
+  font-size: 14px;
+}
+
+.task-mobile-name span {
+  font-size: 12px;
+}
+
+.task-mobile-meta,
+.task-mobile-foot {
+  font-size: 12px;
+}
+
+.task-mobile-foot .el-button {
+  min-height: 32px;
+  font-size: 13px;
+}
+
+@media (max-width: 1000px) {
+  .search-input {
+    min-width: 0;
+  }
+
+  .pagination-bar {
+    justify-content: center;
+  }
+
+  .pagination-bar :deep(.el-pagination__sizes),
+  .pagination-note {
+    display: none;
   }
 }
 </style>

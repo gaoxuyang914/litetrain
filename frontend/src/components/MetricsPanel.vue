@@ -17,9 +17,9 @@ type ChartTab = 'loss' | 'precision' | 'resource'
 const activeTab = ref<ChartTab>('loss')
 
 const tabs: Array<{ key: ChartTab; label: string; hint: string }> = [
-  { key: 'loss', label: '训练损失', hint: 'box / cls / dfl' },
-  { key: 'precision', label: '验证指标', hint: 'mAP / P / R' },
-  { key: 'resource', label: '资源采样', hint: 'CPU / heartbeat' },
+  { key: 'loss', label: '训练损失', hint: '框 / 分类 / DFL' },
+  { key: 'precision', label: '验证指标', hint: 'mAP / 精确率 / 召回率' },
+  { key: 'resource', label: '资源采样', hint: 'CPU / 心跳' },
 ]
 
 function seriesByName(fragment: string) {
@@ -45,13 +45,13 @@ const summary = computed(() => [
     tone: 'copper',
   },
   {
-    label: 'Precision',
+    label: '精确率',
     value: valueOf('metrics/precision(B)'),
     display: formatMetric(valueOf('metrics/precision(B)')),
     tone: 'amber',
   },
   {
-    label: 'Recall',
+    label: '召回率',
     value: valueOf('metrics/recall(B)'),
     display: formatMetric(valueOf('metrics/recall(B)')),
     tone: 'blue',
@@ -66,10 +66,10 @@ function formatMetric(value: number | null): string {
 const lossSeries = computed<ChartSeries[]>(() => {
   const metricSeries = props.metrics?.series ?? []
   const preferred = [
-    ['train/box_loss', '#0b9767', true],
-    ['train/cls_loss', '#b8744b', true],
-    ['train/dfl_loss', '#d1a14b', false],
-    ['val/box_loss', '#4f8a76', false],
+    ['train/box_loss', '#0b7a53', true],
+    ['train/cls_loss', '#a5542f', true],
+    ['train/dfl_loss', '#9a6a1e', false],
+    ['val/box_loss', '#4f6f5e', false],
   ] as const
   const values: Array<ChartSeries | null> = preferred.map(([name, color, area]) => {
     const series = metricSeries.find((item) => item.name === name)
@@ -87,10 +87,10 @@ const lossSeries = computed<ChartSeries[]>(() => {
 const precisionSeries = computed<ChartSeries[]>(() => {
   const metricSeries = props.metrics?.series ?? []
   const preferred = [
-    ['metrics/mAP50(B)', 'mAP50', '#0b9767', true],
-    ['metrics/mAP50-95(B)', 'mAP50-95', '#b8744b', true],
-    ['metrics/precision(B)', 'precision', '#d1a14b', false],
-    ['metrics/recall(B)', 'recall', '#4f8a76', false],
+    ['metrics/mAP50(B)', 'mAP50', '#0b7a53', true],
+    ['metrics/mAP50-95(B)', 'mAP50-95', '#a5542f', true],
+    ['metrics/precision(B)', 'precision', '#9a6a1e', false],
+    ['metrics/recall(B)', 'recall', '#4f6f5e', false],
   ] as const
   const values: Array<ChartSeries | null> = preferred.map(([key, label, color, area]) => {
     const series = metricSeries.find((item) => item.name === key)
@@ -115,7 +115,7 @@ const resourceSeries = computed<ChartSeries[]>(() => {
   return [
     {
       name: 'CPU',
-      color: '#0d9b6b',
+      color: '#0b7a53',
       area: true,
       points: cpuPoints,
     },
@@ -154,14 +154,14 @@ const hasMetricData = computed(() => (props.metrics?.series.length ?? 0) > 0)
       >
         <span>{{ item.label }}</span>
         <strong>{{ item.display }}</strong>
-        <small>final</small>
+        <small>最终</small>
       </div>
     </div>
 
     <div class="chart-card">
       <div class="chart-head">
         <div>
-          <span class="soft-label"><el-icon><TrendCharts /></el-icon> Training telemetry</span>
+          <span class="soft-label"><el-icon><TrendCharts /></el-icon> 训练遥测</span>
           <div class="chart-tabs">
             <button
               v-for="tab in tabs"
@@ -190,22 +190,22 @@ const hasMetricData = computed(() => (props.metrics?.series.length ?? 0) > 0)
       />
 
       <div v-if="activeTab === 'resource'" class="resource-legend">
-        <span><i class="cpu"></i>CPU 百分比来自 worker 心跳</span>
+        <span><i class="cpu"></i>CPU 百分比来自训练进程心跳</span>
         <span v-if="peakMemory">峰值内存 {{ peakMemory.toFixed(1) }} MB</span>
-        <span>{{ metrics?.resources.length ?? 0 }} samples</span>
+        <span>{{ metrics?.resources.length ?? 0 }} 个采样</span>
       </div>
       <div v-else class="chart-foot">
         <span>
           {{ hasMetricData ? '数据来源：Ultralytics on_fit_epoch_end 回调' : '尚未收到 epoch 指标' }}
         </span>
-        <span class="mono">{{ metrics?.series.length ?? 0 }} series</span>
+        <span class="mono">{{ metrics?.series.length ?? 0 }} 条曲线</span>
       </div>
     </div>
 
     <div v-if="task.status === 'running' && !loading" class="live-hint">
       <span class="live-dot"></span>
       <span>指标每完成一轮上报一次，资源采样随心跳更新</span>
-      <span class="mono">LIVE</span>
+      <span class="mono">实时</span>
     </div>
   </div>
 </template>
@@ -220,8 +220,8 @@ const hasMetricData = computed(() => (props.metrics?.series.length ?? 0) > 0)
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 7px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .summary-card {
@@ -430,6 +430,100 @@ const hasMetricData = computed(() => (props.metrics?.series.length ?? 0) > 0)
 @media (max-width: 740px) {
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+</style>
+
+<style scoped>
+.summary-grid {
+  gap: 8px;
+}
+
+.summary-card {
+  padding: 10px 12px;
+  border-radius: 6px;
+}
+
+.summary-card span {
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.summary-card strong {
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.summary-card small {
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.chart-card {
+  padding: 14px 14px 10px;
+  border-radius: var(--radius);
+}
+
+.chart-head .soft-label {
+  font-size: 12px;
+}
+
+.chart-head .el-icon {
+  font-size: 14px;
+}
+
+.chart-tabs {
+  gap: 4px;
+  margin-top: 9px;
+}
+
+.chart-tabs button {
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.chart-tabs button small {
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.epoch-badge {
+  padding: 3px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.chart-foot,
+.resource-legend {
+  padding-top: 7px;
+  font-size: 12px;
+}
+
+.live-hint {
+  padding: 9px 11px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.live-dot {
+  width: 5px;
+  height: 5px;
+}
+
+@media (max-width: 740px) {
+  .chart-tabs button {
+    font-size: 12px;
+  }
+
+  .chart-tabs button small {
+    display: none;
   }
 }
 </style>

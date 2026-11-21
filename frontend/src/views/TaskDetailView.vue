@@ -75,13 +75,30 @@ const scheduledNode = computed(() => {
   const scheduled = events.value.find(
     (event) => event.event_type === 'scheduled' && event.message.includes(' on '),
   )
-  return scheduled?.message.match(/ on (.+?) \(/)?.[1] ?? (isPending.value ? 'queued' : '—')
+  return scheduled?.message.match(/ on (.+?) \(/)?.[1] ?? (isPending.value ? '排队中' : '—')
 })
 
 const runtimeLabel = computed(() => formatDuration(task.value?.runtime_seconds))
 const heartbeatLabel = computed(() =>
   task.value?.last_heartbeat_at ? timeAgo(task.value.last_heartbeat_at) : '—',
 )
+const executorLabel = computed(() => {
+  const value = task.value?.executor
+  if (!value) return ''
+  return value.toLowerCase() === 'ray' ? 'Ray' : value
+})
+
+function eventMessage(message: string): string {
+  const success = message.match(/^Training succeeded in (\d+)s$/i)
+  if (success) return `训练成功，耗时 ${success[1]} 秒`
+  const allocated = message.match(/^Allocated (\d+) CPU core\(s\) on (.+?) \(node-[^)]+\)/i)
+  if (allocated) return `分配 ${allocated[1]} 个 CPU 核，节点 ${allocated[2]}`
+  const submitted = message.match(/^Task submitted with (\d+) CPU core\(s\), priority (\d+)/i)
+  if (submitted) return `任务已提交，申请 ${submitted[1]} 个 CPU 核，优先级 ${submitted[2]}`
+  if (/^Task cancelled/i.test(message)) return '任务已取消，资源已释放'
+  if (/^Training failed/i.test(message)) return '训练失败，请查看日志和失败原因'
+  return message
+}
 
 const summaryStats = computed(() => {
   if (!task.value) return []
@@ -89,7 +106,7 @@ const summaryStats = computed(() => {
     {
       label: 'CPU 配额',
       value: `${task.value.cpu_cores}`,
-      unit: 'cores',
+      unit: '核',
       hint: `优先级 ${task.value.priority}`,
       icon: Cpu,
     },
@@ -111,7 +128,7 @@ const summaryStats = computed(() => {
       label: '执行节点',
       value: scheduledNode.value,
       unit: '',
-      hint: task.value.executor ? `executor ${task.value.executor}` : '等待调度',
+      hint: task.value.executor ? `执行器 ${executorLabel.value}` : '等待调度',
       icon: Connection,
     },
   ]
@@ -120,14 +137,14 @@ const summaryStats = computed(() => {
 function statusHint(taskValue: Task): string {
   if (taskValue.status === 'pending') {
     return taskValue.queue_position
-      ? `正在队列中等待 · 排队位置 #${taskValue.queue_position}`
+      ? `正在队列中等待，排队位置 #${taskValue.queue_position}`
       : '正在等待调度器分配 CPU 资源'
   }
   if (taskValue.status === 'running') {
-    return `worker 正在 CPU 上训练 · 最近心跳 ${heartbeatLabel.value}`
+    return `训练进程正在 CPU 上运行，最近心跳 ${heartbeatLabel.value}`
   }
   if (taskValue.status === 'succeeded') {
-    return `训练成功完成 · 总耗时 ${formatDuration(taskValue.runtime_seconds)}`
+    return `训练成功完成，总耗时 ${formatDuration(taskValue.runtime_seconds)}`
   }
   if (taskValue.status === 'failed') {
     return taskValue.failure_reason || '训练失败'
@@ -328,7 +345,7 @@ onBeforeUnmount(() => stopPolling())
           返回任务列表
         </button>
         <div class="detail-title-row">
-          <span class="eyebrow">Job detail / {{ taskId }}</span>
+          <span class="eyebrow">任务运行详情</span>
           <StatusBadge v-if="task" :status="task.status" />
         </div>
         <h1 class="page-title">{{ task?.name ?? '任务详情' }}</h1>
@@ -336,10 +353,8 @@ onBeforeUnmount(() => stopPolling())
           <button type="button" class="id-copy mono" @click="copy(task.id, '任务 ID')">
             {{ task.id }} <el-icon><CopyDocument /></el-icon>
           </button>
-          <span class="dot-separator">·</span>
-          <span>owner {{ task.owner }}</span>
-          <span class="dot-separator">·</span>
-          <span>{{ formatFullDate(task.submitted_at) }}</span>
+          <span>负责人 {{ task.owner }}</span>
+          <span>提交于 {{ formatFullDate(task.submitted_at) }}</span>
         </div>
       </div>
       <div class="page-actions">
@@ -395,7 +410,7 @@ onBeforeUnmount(() => stopPolling())
           <div class="hero-copy">
             <div class="hero-eyebrow">
               <span>{{ statusLabel }}</span>
-              <span v-if="task.executor" class="mono">via {{ task.executor }}</span>
+              <span v-if="task.executor" class="mono">执行器 {{ executorLabel }}</span>
             </div>
             <p class="hero-hint" :class="{ failure: task.status === 'failed' }">
               {{ statusHint(task) }}
@@ -403,7 +418,7 @@ onBeforeUnmount(() => stopPolling())
           </div>
           <div class="hero-progress-number">
             <strong>{{ isPending ? `#${task.queue_position ?? '—'}` : `${progressValue.toFixed(1)}%` }}</strong>
-            <span>{{ isPending ? 'queue' : 'progress' }}</span>
+            <span>{{ isPending ? '排队' : '进度' }}</span>
           </div>
         </div>
 
@@ -454,8 +469,8 @@ onBeforeUnmount(() => stopPolling())
           <section id="task-logs" ref="logsSection" class="panel logs-panel">
             <div class="panel-head">
               <div>
-                <h2><span class="head-index">01</span> 训练日志</h2>
-                <p class="panel-caption">按 offset 增量读取 · SSE 实时推送 · 虚拟滚动渲染</p>
+                <h2>训练日志</h2>
+                <p class="panel-caption">增量读取日志，实时推送，长列表虚拟滚动</p>
               </div>
               <div class="log-head-meta">
                 <span class="tag-soft" :class="{ accent: isRunning }">
@@ -473,8 +488,8 @@ onBeforeUnmount(() => stopPolling())
           <section class="panel config-panel">
             <div class="panel-head">
               <div>
-                <h2><span class="head-index">02</span> 执行配置</h2>
-                <p class="panel-caption">任务参数会原样传递给 worker / ultralytics</p>
+                <h2>执行配置</h2>
+                <p class="panel-caption">任务参数会原样传递给训练进程与 Ultralytics</p>
               </div>
               <el-button text :icon="CopyDocument" @click="copy(task.command, '执行命令')">
                 复制命令
@@ -483,47 +498,47 @@ onBeforeUnmount(() => stopPolling())
             <div class="config-body">
               <div class="config-grid">
                 <div class="config-item">
-                  <span>Model</span>
+                  <span>模型</span>
                   <strong class="mono">{{ task.model }}</strong>
                 </div>
                 <div class="config-item">
-                  <span>Dataset</span>
+                  <span>数据集</span>
                   <strong class="mono">{{ task.dataset }}</strong>
                 </div>
                 <div class="config-item">
-                  <span>Epochs</span>
+                  <span>训练轮数</span>
                   <strong class="mono">{{ task.epochs }}</strong>
                 </div>
                 <div class="config-item">
-                  <span>Image size</span>
+                  <span>图像尺寸</span>
                   <strong class="mono">{{ task.imgsz }} × {{ task.imgsz }}</strong>
                 </div>
                 <div class="config-item">
-                  <span>Batch</span>
+                  <span>批大小</span>
                   <strong class="mono">{{ task.batch_size }}</strong>
                 </div>
                 <div class="config-item">
-                  <span>Workers</span>
+                  <span>数据线程</span>
                   <strong class="mono">{{ task.workers }}</strong>
                 </div>
                 <div class="config-item">
-                  <span>Device</span>
+                  <span>设备</span>
                   <strong class="mono">{{ task.device }}</strong>
                 </div>
                 <div class="config-item">
-                  <span>Timeout</span>
+                  <span>超时</span>
                   <strong class="mono">{{ formatDuration(task.max_runtime_seconds) }}</strong>
                 </div>
               </div>
               <div class="command-full">
                 <div class="command-label">
-                  <span class="soft-label">Worker command</span>
-                  <span class="mono">pid {{ task.pid ?? '—' }}</span>
+                  <span class="soft-label">训练命令</span>
+                  <span class="mono">进程 {{ task.pid ?? '—' }}</span>
                 </div>
                 <code>{{ task.command }}</code>
               </div>
               <div v-if="task.notes" class="notes-box">
-                <span class="soft-label">Notes</span>
+                <span class="soft-label">备注</span>
                 <p>{{ task.notes }}</p>
               </div>
             </div>
@@ -534,11 +549,11 @@ onBeforeUnmount(() => stopPolling())
           <section class="panel metrics-card">
             <div class="panel-head">
               <div>
-                <h2><span class="head-index">03</span> 训练指标</h2>
-                <p class="panel-caption">loss / mAP / precision / recall</p>
+                <h2>训练指标</h2>
+                <p class="panel-caption">损失、mAP、精确率与召回率</p>
               </div>
               <span class="tag-soft" :class="{ accent: isRunning }">
-                {{ isRunning ? 'updating' : 'snapshot' }}
+                {{ isRunning ? '更新中' : '快照' }}
               </span>
             </div>
             <div class="metrics-body">
@@ -556,7 +571,7 @@ onBeforeUnmount(() => stopPolling())
           <section class="panel events-card">
             <div class="panel-head">
               <div>
-                <h2><span class="head-index">04</span> 事件时间线</h2>
+                <h2>事件时间线</h2>
                 <p class="panel-caption">状态流转与资源动作</p>
               </div>
               <span class="mono event-count">{{ events.length }}</span>
@@ -577,7 +592,7 @@ onBeforeUnmount(() => stopPolling())
                         {{ timeAgo(event.created_at) }}
                       </span>
                     </div>
-                    <p>{{ event.message }}</p>
+                    <p>{{ eventMessage(event.message) }}</p>
                   </div>
                 </li>
               </ol>
@@ -586,7 +601,7 @@ onBeforeUnmount(() => stopPolling())
 
           <section class="panel side-info-card">
             <div class="panel-head">
-              <h2><span class="head-index">05</span> 生命周期</h2>
+              <h2>生命周期</h2>
             </div>
             <div class="lifecycle-body">
               <div class="lifecycle-item">
@@ -1095,7 +1110,7 @@ onBeforeUnmount(() => stopPolling())
 
 .command-label .mono {
   color: var(--text-muted);
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .command-full code {
@@ -1123,8 +1138,8 @@ onBeforeUnmount(() => stopPolling())
 .notes-box p {
   margin-top: 3px;
   color: var(--text-secondary);
-  font-size: 10px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 .metrics-card,
@@ -1532,26 +1547,311 @@ onBeforeUnmount(() => stopPolling())
   }
 }
 
+.detail-page {
+  gap: 20px;
+}
+
+.back-link {
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 13px;
+}
+
+.detail-subline {
+  gap: 8px 18px;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 13px;
+}
+
+.id-copy {
+  gap: 5px;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.dot-separator {
+  display: none;
+}
+
+.job-hero {
+  padding: 20px 22px 0;
+  border-color: var(--border);
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.job-hero.state-succeeded,
+.job-hero.state-running,
+.job-hero.state-failed,
+.job-hero.state-cancelled {
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.hero-progress > span.state-running {
+  background: var(--accent);
+}
+
+.hero-progress > span.state-succeeded {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.hero-status-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  font-size: 21px;
+  box-shadow: none;
+}
+
+.hero-eyebrow {
+  gap: 8px;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 13px;
+  text-transform: none;
+}
+
+.hero-eyebrow span:first-child {
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.hero-eyebrow .mono {
+  padding-left: 8px;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  text-transform: none;
+}
+
+.hero-stat-value small {
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.term-size {
+  font-size: 12px;
+}
+
+.hero-hint {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.hero-hint.failure {
+  font-family: var(--font);
+  font-size: 14px;
+}
+
+.hero-progress-number strong {
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.hero-progress-number span {
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.hero-progress {
+  height: 5px;
+  margin: 16px 0 14px;
+  background: var(--panel-soft);
+}
+
+.hero-progress > span.state-succeeded {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.hero-stat {
+  gap: 9px;
+  padding-top: 14px;
+  padding-bottom: 15px;
+}
+
+.hero-stat-icon {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel-soft);
+  font-size: 14px;
+}
+
+.hero-stat-value strong {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hero-stat-value small {
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.hero-stat-label {
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.hero-stat-hint {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.detail-main-grid {
+  gap: 16px;
+}
+
+.logs-panel .panel-head,
+.metrics-card .panel-head,
+.events-card .panel-head,
+.config-panel .panel-head,
+.side-info-card .panel-head {
+  padding: 16px 18px 14px;
+}
+
+.panel-caption {
+  font-size: 14px;
+}
+
+.log-bytes {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.metrics-card :deep(.summary-grid) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.log-panel-body,
+.metrics-body {
+  padding: 12px;
+}
+
+.config-body {
+  gap: 16px;
+  padding: 16px 18px 18px;
+}
+
+.config-grid {
+  border-radius: 6px;
+}
+
+.config-item {
+  gap: 4px;
+  padding: 12px;
+}
+
+.config-item span {
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.config-item strong {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.notes-box {
+  border-radius: 6px;
+}
+
+.events-body {
+  max-height: 360px;
+  padding: 4px 18px 12px;
+}
+
+.event-item {
+  gap: 11px;
+  padding: 11px 0;
+}
+
+.event-type {
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.event-time {
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.event-content p {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.event-count {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.lifecycle-body {
+  padding: 4px 18px 12px;
+}
+
+.lifecycle-item {
+  gap: 16px;
+  padding: 10px 0;
+}
+
+.lifecycle-item span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.lifecycle-item strong {
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.side-info-card {
+  border-radius: var(--radius);
+}
+
 @media (max-width: 760px) {
   .detail-side {
     display: flex !important;
     flex-direction: column;
-    grid-template-columns: minmax(0, 1fr);
   }
 
-  .metrics-card .panel-head h2,
-  .events-card .panel-head h2,
-  .side-info-card .panel-head h2 {
-    white-space: nowrap;
+  .hero-stat-label,
+  .hero-stat-value strong {
+    font-size: 13px;
   }
 
-  .hero-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .hero-stat:nth-child(odd) {
-    padding-left: 0;
-    border-left: none;
+  .hero-stat-hint {
+    font-size: 12px;
   }
 }
 </style>

@@ -356,7 +356,7 @@ onBeforeUnmount(() => {
   <div class="page assets-page">
     <div class="page-head">
       <div class="page-heading">
-        <span class="eyebrow">Assets &amp; automation</span>
+        <span class="eyebrow">资产与自动化</span>
         <h1 class="page-title">数据与产物</h1>
         <p class="page-subtitle">
           管理可复用数据集版本、下载 YOLO 训练权重与结果，并通过签名 Webhook 把任务和流水线状态推送到外部系统。
@@ -378,21 +378,21 @@ onBeforeUnmount(() => {
     <section class="asset-summary">
       <div class="asset-stat">
         <span class="asset-icon"><el-icon><FolderOpened /></el-icon></span>
-        <div><strong>{{ datasets.length }}</strong><span>datasets</span></div>
+        <div><strong>{{ datasets.length }}</strong><span>个数据集</span></div>
         <small>版本化数据集</small>
       </div>
       <div class="asset-stat">
         <span class="asset-icon violet"><el-icon><Box /></el-icon></span>
-        <div><strong>{{ artifacts.length }}</strong><span>artifacts</span></div>
+        <div><strong>{{ artifacts.length }}</strong><span>个产物</span></div>
         <small>{{ formatBytes(artifactBytes) }}</small>
       </div>
       <div class="asset-stat">
         <span class="asset-icon amber"><el-icon><Connection /></el-icon></span>
-        <div><strong>{{ activeWebhooks }}</strong><span>webhooks</span></div>
+        <div><strong>{{ activeWebhooks }}</strong><span>个 Webhook</span></div>
         <small>{{ successfulDeliveries }} 次投递成功</small>
       </div>
       <div class="asset-note">
-        <span class="soft-label">P2 storage</span>
+        <span class="soft-label">本地资产存储</span>
         <p>训练完成后自动扫描 <code>weights/best.pt</code>、<code>last.pt</code> 与 <code>results.csv</code>，计算 SHA-256 并提供下载。</p>
       </div>
     </section>
@@ -416,7 +416,7 @@ onBeforeUnmount(() => {
         <span class="tab-spacer"></span>
         <span class="tag-soft" :class="{ accent: activeTab === 'webhooks' && activeWebhooks }">
           <span class="dot" :class="{ pulse: activeTab === 'webhooks' && activeWebhooks }"></span>
-          {{ activeTab === 'datasets' ? 'registry' : activeTab === 'artifacts' ? 'artifacts' : 'outbox' }}
+          {{ activeTab === 'datasets' ? '数据登记' : activeTab === 'artifacts' ? '模型产物' : '投递箱' }}
         </span>
       </div>
 
@@ -438,13 +438,13 @@ onBeforeUnmount(() => {
           <el-table-column label="来源" width="100">
             <template #default="{ row }">
               <span class="soft-tag" :class="{ builtin: row.is_builtin }">
-                {{ row.is_builtin ? 'built-in' : 'uploaded' }}
+                {{ row.is_builtin ? '内置' : '已上传' }}
               </span>
             </template>
           </el-table-column>
           <el-table-column label="规模" min-width="120">
             <template #default="{ row }">
-              <span class="mono muted">{{ row.image_count }} imgs · {{ row.label_count }} labels</span>
+              <span class="mono muted">{{ row.image_count }} 张图 · {{ row.label_count }} 个标签</span>
             </template>
           </el-table-column>
           <el-table-column label="类别" width="70" align="center">
@@ -478,12 +478,12 @@ onBeforeUnmount(() => {
             <div class="mobile-card-head">
               <span class="dataset-icon"><el-icon><FolderOpened /></el-icon></span>
               <div><strong>{{ row.name }}</strong><span class="mono">{{ row.version }} · {{ formatBytes(row.size_bytes) }}</span></div>
-              <span class="soft-tag" :class="{ builtin: row.is_builtin }">{{ row.is_builtin ? 'builtin' : 'uploaded' }}</span>
+              <span class="soft-tag" :class="{ builtin: row.is_builtin }">{{ row.is_builtin ? '内置' : '已上传' }}</span>
             </div>
             <div class="mobile-card-meta">
-              <span>{{ row.image_count }} images</span>
-              <span>{{ row.label_count }} labels</span>
-              <span>{{ row.class_count }} classes</span>
+              <span>{{ row.image_count }} 张图</span>
+              <span>{{ row.label_count }} 个标签</span>
+              <span>{{ row.class_count }} 个类别</span>
             </div>
             <div class="mobile-card-actions">
               <el-button v-if="!row.is_builtin" size="small" text :icon="Download" @click="downloadDataset(row)">下载</el-button>
@@ -493,9 +493,9 @@ onBeforeUnmount(() => {
         </div>
         <div class="dataset-cta">
           <div class="dataset-cta-copy">
-            <span class="soft-label">From data to weights</span>
+            <span class="soft-label">从数据到权重</span>
             <h3>用版本化数据启动一条三阶段流水线</h3>
-            <p>预处理自动生成安全子集，训练完成后权重与指标会回到资产页，形成可追溯闭环。</p>
+            <p>预处理自动生成安全子集，训练完成后权重与指标会自动回到资产页，来源可追溯。</p>
           </div>
           <div class="dataset-cta-mark" aria-hidden="true">
             <span></span><span></span><span></span>
@@ -509,7 +509,7 @@ onBeforeUnmount(() => {
 
       <template v-else-if="activeTab === 'artifacts'">
         <div class="artifact-toolbar">
-          <span class="soft-label">Filter</span>
+          <span class="soft-label">筛选</span>
           <button
             v-for="filter in artifactFilters"
             :key="filter.key"
@@ -534,7 +534,7 @@ onBeforeUnmount(() => {
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="task" min-width="150">
+          <el-table-column label="任务" min-width="150">
             <template #default="{ row }">
               <button class="link-button mono" type="button" @click="openTask(row.task_id)">{{ row.task_id }}</button>
             </template>
@@ -629,7 +629,7 @@ onBeforeUnmount(() => {
           <section class="delivery-panel">
             <div class="delivery-head">
               <div>
-                <span class="soft-label">Delivery outbox</span>
+                <span class="soft-label">投递队列</span>
                 <h3>最近投递</h3>
               </div>
               <span class="tag-soft"><span class="dot"></span>HMAC-SHA256</span>
@@ -642,7 +642,7 @@ onBeforeUnmount(() => {
                 <span class="delivery-marker" :class="deliveryTone(delivery.status)"></span>
                 <div class="delivery-copy">
                   <strong class="mono">{{ delivery.event_type }}</strong>
-                  <span>{{ delivery.response_code ?? '—' }} · attempt {{ delivery.attempts }}/{{ delivery.max_attempts }}</span>
+                  <span>{{ delivery.response_code ?? '—' }} · 第 {{ delivery.attempts }}/{{ delivery.max_attempts }} 次尝试</span>
                 </div>
                 <span class="delivery-status mono" :class="deliveryTone(delivery.status)">{{ delivery.status }}</span>
                 <span class="delivery-time">{{ timeAgo(delivery.created_at) }}</span>
@@ -1912,6 +1912,271 @@ html.dark .asset-tab.active strong {
   .dataset-cta-actions {
     width: 100%;
     margin-left: 0;
+  }
+}
+</style>
+
+<style scoped>
+.assets-page {
+  gap: 24px;
+}
+
+.asset-summary {
+  gap: 12px;
+}
+
+.asset-stat {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: none;
+  flex-wrap: wrap;
+  align-content: center;
+  row-gap: 4px;
+}
+
+.asset-stat > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.asset-stat small {
+  flex: 0 0 100%;
+  margin-left: 0;
+  padding-left: 43px;
+  box-sizing: border-box;
+  text-align: left;
+  white-space: normal;
+}
+
+.asset-stat:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.asset-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+}
+
+.asset-stat strong {
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.asset-stat div span {
+  font-family: var(--font);
+  font-size: 13px;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.asset-stat small {
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.asset-note {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.asset-note .soft-label {
+  color: var(--accent-strong);
+  font-size: 12px;
+}
+
+.asset-note p {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.asset-tabs-row {
+  padding: 10px 12px;
+}
+
+.asset-tab {
+  min-height: 48px;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.asset-tab strong {
+  font-size: 14px;
+}
+
+.asset-tab small {
+  font-size: 12px;
+}
+
+.asset-table :deep(td) {
+  font-size: 14px;
+}
+
+.dataset-cell strong,
+.artifact-cell strong {
+  font-size: 14px;
+}
+
+.dataset-cell .mono,
+.artifact-cell .mono,
+.link-button,
+.hash {
+  font-size: 12px;
+}
+
+.dataset-cell strong,
+.artifact-cell strong {
+  font-size: 14px;
+}
+
+.soft-tag {
+  font-size: 12px;
+  line-height: 1.5;
+  border-color: var(--border);
+  background: var(--panel-soft);
+  color: var(--text-secondary);
+}
+
+.count-pill {
+  font-size: 11px;
+}
+
+.muted.small {
+  font-size: 12px;
+}
+
+.asset-note code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--panel-soft);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.mobile-card-head .mono,
+.mobile-card-meta {
+  font-size: 12px;
+}
+
+.mobile-card-meta {
+  line-height: 1.5;
+}
+
+.filter-chip {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.filter-count {
+  font-size: 12px;
+}
+
+.dataset-cta {
+  border-radius: var(--radius);
+}
+
+.dataset-cta h3 {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.dataset-cta p {
+  font-size: 14px;
+}
+
+.webhook-card {
+  padding: 16px;
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+.webhook-card:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.webhook-card strong {
+  font-size: 14px;
+}
+
+.webhook-card code,
+.webhook-card small {
+  font-size: 12px;
+}
+
+.delivery-head h3 {
+  font-size: 18px;
+}
+
+.delivery-row {
+  padding: 11px 0;
+}
+
+.delivery-copy strong {
+  font-size: 13px;
+}
+
+.delivery-copy span,
+.delivery-status,
+.delivery-time {
+  font-size: 12px;
+}
+
+.webhook-empty,
+.delivery-empty {
+  font-size: 14px;
+}
+
+.dataset-cta .soft-label {
+  color: #9fe0c3;
+  font-size: 12px;
+}
+
+.dataset-cta {
+  background: #0c1a13;
+}
+
+.mobile-card-head strong {
+  font-size: 14px;
+}
+
+@media (max-width: 1000px) {
+  .asset-tabs-row > .tag-soft {
+    display: none;
+  }
+
+  .asset-stat {
+    padding: 14px;
+  }
+
+  .asset-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    padding: 8px 6px;
+  }
+
+  .asset-tab .el-icon {
+    width: 24px;
+    height: 24px;
+    font-size: 13px;
+  }
+
+  .asset-tab strong {
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .asset-tab small {
+    display: none;
   }
 }
 </style>

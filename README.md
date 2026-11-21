@@ -115,7 +115,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 更多截图：任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)。
 
-> 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.2 Precision Console**：深色外框、实时集群拓扑、Jade/Citron/Copper 配色和任务 cockpit。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
+> 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.3 Operations Ledger**：纸面工作区、深色导航栏、实时集群拓扑和任务 cockpit；字号、对比度、焦点和 reduced-motion 均按 `deepseek-frontend-design` 技能自检。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
 
 ---
 

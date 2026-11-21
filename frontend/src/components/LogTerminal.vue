@@ -90,11 +90,11 @@ const matches = computed(() => {
 })
 
 const connectionLabel = computed(() => {
-  if (mode.value === 'sse') return 'SSE LIVE'
-  if (mode.value === 'polling') return 'POLLING'
-  if (mode.value === 'ended') return 'STREAM ENDED'
-  if (mode.value === 'error') return 'DISCONNECTED'
-  return 'CONNECTING'
+  if (mode.value === 'sse') return '实时连接'
+  if (mode.value === 'polling') return '轮询中'
+  if (mode.value === 'ended') return '日志已结束'
+  if (mode.value === 'error') return '连接断开'
+  return '连接中'
 })
 
 const connectionTone = computed(() => {
@@ -417,7 +417,7 @@ onBeforeUnmount(() => {
           clearable
           @input="onSearchInput"
         />
-        <span v-if="highlightKeyword" class="match-count mono">{{ matches }} lines</span>
+        <span v-if="highlightKeyword" class="match-count mono">{{ matches }} 处匹配</span>
       </div>
       <div class="term-actions">
         <button
@@ -467,7 +467,7 @@ onBeforeUnmount(() => {
           </template>
           <template v-else>
             <span class="empty-prompt">$</span>
-            <span>等待 worker 输出日志…</span>
+            <span>等待训练进程输出日志…</span>
           </template>
         </div>
       </div>
@@ -480,16 +480,16 @@ onBeforeUnmount(() => {
 
       <button v-if="!follow && newLines > 0" class="jump-latest" type="button" @click="toggleFollow">
         <el-icon><ArrowDownBold /></el-icon>
-        回到最新 · {{ newLines }} 条
+        回到最新，{{ newLines }} 条
       </button>
     </div>
 
     <footer class="term-foot">
       <span class="mono">
-        {{ lineCount.toLocaleString() }} lines
+        {{ lineCount.toLocaleString() }} 行
         <span v-if="truncated" class="truncated-note">· 仅保留最近 {{ MAX_LINES.toLocaleString() }} 行</span>
       </span>
-      <span class="mono">offset {{ offset }} · follow {{ follow ? 'on' : 'paused' }}</span>
+      <span class="mono">偏移 {{ offset }} · {{ follow ? '跟随' : '已暂停' }}</span>
     </footer>
   </section>
 </template>
@@ -905,6 +905,56 @@ onBeforeUnmount(() => {
 
   .line-text {
     font-size: 10px;
+  }
+}
+</style>
+
+<style scoped>
+.term-title {
+  font-size: 12px;
+}
+
+.conn-badge,
+.term-size {
+  font-size: 11px;
+}
+
+.term-action {
+  font-size: 12px;
+}
+
+.match-count {
+  font-size: 11px;
+}
+
+.term-foot {
+  font-size: 12px;
+}
+
+.line-number {
+  font-size: 10px;
+}
+
+.term-empty {
+  font-size: 13px;
+}
+
+.line-text {
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .term-title {
+    max-width: 40%;
+    font-size: 11px;
+  }
+
+  .line-text {
+    font-size: 11.5px;
+  }
+
+  .term-action span {
+    display: none;
   }
 }
 </style>

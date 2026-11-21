@@ -52,18 +52,18 @@ function onShortcut(event: KeyboardEvent) {
 
 const navGroups = [
   {
-    label: 'Workspace',
+    label: '工作台',
     items: [
-      { name: 'overview', label: '集群总览', caption: 'CPU / 队列', icon: DataAnalysis, path: '/overview' },
+      { name: 'overview', label: '集群总览', caption: 'CPU 与队列', icon: DataAnalysis, path: '/overview' },
       { name: 'tasks', label: '任务列表', caption: '提交与追踪', icon: Tickets, path: '/tasks' },
       { name: 'task-submit', label: '提交任务', caption: 'YOLO · CPU', icon: MagicStick, path: '/tasks/new' },
     ],
   },
   {
-    label: 'Orchestration',
+    label: '编排与资产',
     items: [
       { name: 'pipelines', label: '训练流水线', caption: '预处理 → 评估', icon: Share, path: '/pipelines' },
-      { name: 'assets', label: '数据与产物', caption: '资产 · Webhook', icon: FolderOpened, path: '/assets' },
+      { name: 'assets', label: '数据与产物', caption: '数据集 · Webhook', icon: FolderOpened, path: '/assets' },
     ],
   },
 ]
@@ -73,14 +73,14 @@ const title = computed(() => {
   return (route.meta.title as string) || '训练工作台'
 })
 
-const eyebrow = computed(() => ((route.meta.eyebrow as string) || 'Workbench').toUpperCase())
+const eyebrow = computed(() => (route.meta.eyebrow as string) || '训练工作台')
 
 const onlineNodeCount = computed(
   () => overview.value?.nodes.filter((node) => node.status === 'online').length ?? 0,
 )
 
 const backendLabel = computed(() =>
-  overview.value?.services.execution_backend === 'ray' ? 'RAY' : 'LOCAL',
+  overview.value?.services.execution_backend === 'ray' ? 'Ray' : '本地',
 )
 
 const cpuLabel = computed(
@@ -143,7 +143,7 @@ onBeforeUnmount(() => {
         </span>
         <span class="brand-copy">
           <strong>LiteTrain</strong>
-          <small>CPU TRAINING LAB</small>
+          <small>CPU 训练平台</small>
         </span>
         <el-tooltip
           :content="sidebarCollapsed ? '展开侧栏 (Ctrl + .)' : '收起侧栏 (Ctrl + .)'"
@@ -199,13 +199,13 @@ onBeforeUnmount(() => {
       <div class="system-card">
         <div class="system-aurora"></div>
         <div class="system-card-head">
-          <span class="system-label">CLUSTER PULSE</span>
-          <span class="system-live"><i></i>LIVE</span>
+          <span class="system-label">集群状态</span>
+          <span class="system-live"><i></i>实时</span>
         </div>
         <div class="system-cpu">
           <div class="system-cpu-main">
             <strong>{{ overview?.cpu.allocated ?? 0 }}</strong>
-            <span>/ {{ overview?.cpu.total ?? '—' }} CPU</span>
+            <span>/ {{ overview?.cpu.total ?? '—' }} 核</span>
           </div>
           <span class="system-cpu-pct">
             {{ Math.round(overview?.cpu.utilization_percent ?? 0) }}%
@@ -215,33 +215,33 @@ onBeforeUnmount(() => {
           <span :style="{ width: `${overview?.cpu.utilization_percent ?? 0}%` }"></span>
         </div>
         <div class="system-row">
-          <span><i class="system-dot" :class="{ ok: overview?.services.ray_connected }"></i>Ray cluster</span>
+          <span><i class="system-dot" :class="{ ok: overview?.services.ray_connected }"></i>Ray 集群</span>
           <span class="system-value" :class="{ ok: overview?.services.ray_connected }">
-            {{ overview?.services.ray_connected ? 'ONLINE' : 'OFFLINE' }}
+            {{ overview?.services.ray_connected ? '在线' : '离线' }}
           </span>
         </div>
         <div class="system-row">
-          <span><i class="system-dot" :class="{ ok: overview?.services.redis_connected }"></i>Redis bus</span>
+          <span><i class="system-dot" :class="{ ok: overview?.services.redis_connected }"></i>Redis 消息</span>
           <span class="system-value" :class="{ ok: overview?.services.redis_connected }">
-            {{ overview?.services.redis_connected ? 'ONLINE' : 'LOCAL' }}
+            {{ overview?.services.redis_connected ? '在线' : '本地' }}
           </span>
         </div>
         <div class="system-row">
-          <span><i class="system-dot accent"></i>Nodes</span>
-          <span class="system-value accent">{{ onlineNodeCount }} ONLINE</span>
+          <span><i class="system-dot accent"></i>节点</span>
+          <span class="system-value accent">{{ onlineNodeCount }} 在线</span>
         </div>
-        <p class="system-foot">{{ cpuLabel }} cores allocated</p>
+        <p class="system-foot">{{ cpuLabel }} 核已分配</p>
       </div>
 
       <div class="sidebar-bottom">
         <a class="sidebar-doc" href="/docs" target="_blank" rel="noreferrer">
           <el-icon><Document /></el-icon>
-          <span>API 文档 / OpenAPI</span>
+          <span>API 文档</span>
           <span class="sidebar-doc-arrow">↗</span>
         </a>
         <div class="sidebar-signature">
-          <span class="mono">v2.2.1</span>
-          <span>CPU only · local first</span>
+          <span class="mono">v2.3.0</span>
+          <span>仅 CPU · 本地优先</span>
         </div>
       </div>    </aside>
 
@@ -266,8 +266,8 @@ onBeforeUnmount(() => {
           <button class="cluster-chip" type="button" title="打开集群总览" @click="navigate('overview')">
             <span class="cluster-orb"><i></i></span>
             <span class="cluster-chip-copy">
-              <small>CLUSTER</small>
-              <strong>{{ cpuLabel }} CPU</strong>
+              <small>集群</small>
+              <strong>{{ cpuLabel }} 核</strong>
             </span>
           </button>
           <span class="topbar-divider"></span>
@@ -328,7 +328,7 @@ onBeforeUnmount(() => {
       </main>
 
       <footer class="app-footer">
-        <span>LiteTrain 2.2.1 · CPU-only YOLO training control plane</span>
+        <span>LiteTrain 2.3 · CPU-only YOLO training control plane</span>
         <span class="mono">FastAPI · Redis · Ray · SQLite</span>
       </footer>
     </div>
@@ -1848,6 +1848,404 @@ onBeforeUnmount(() => {
 
   .sidebar-toggle {
     display: none;
+  }
+}
+</style>
+
+<style scoped>
+/* Operations ledger: flat dark rail, paper workspace, no glass frame. */
+.app-shell {
+  gap: 0;
+  min-height: 100vh;
+  padding: 0;
+  background: var(--bg);
+}
+
+.sidebar {
+  top: 0;
+  width: 228px;
+  height: 100vh;
+  padding: 18px 12px 14px;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0;
+  background: #0a1711;
+  box-shadow: none;
+}
+
+.brand {
+  gap: 9px;
+  padding: 3px 5px 20px;
+}
+
+.brand-copy strong {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.brand-copy small {
+  color: #789889;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.brand::after {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.nav-label {
+  padding: 0 8px;
+  color: #6f897b;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.nav-label::after {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.nav-item {
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #a3b8ac;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.045);
+  color: #e2eee7;
+  transform: none;
+}
+
+.nav-item.active {
+  border-color: rgba(75, 195, 148, 0.16);
+  background: rgba(75, 195, 148, 0.08);
+  box-shadow: none;
+  color: #f0faf4;
+}
+
+.nav-item.active::before {
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 2px;
+  background: #4bc394;
+}
+
+.nav-icon {
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: transparent;
+}
+
+.nav-icon .el-icon {
+  font-size: 16px;
+}
+
+.nav-item.active .nav-icon {
+  border-color: rgba(75, 195, 148, 0.18);
+  background: rgba(75, 195, 148, 0.08);
+  color: #81dcb7;
+  box-shadow: none;
+}
+
+.nav-copy strong {
+  color: #b9cbbf;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.nav-copy small {
+  color: #6f897b;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.nav-item.active .nav-copy strong {
+  color: #f0faf4;
+}
+
+.nav-item.active .nav-copy small {
+  color: #8fb5a3;
+}
+
+.nav-chevron {
+  color: transparent;
+  font-size: 12px;
+}
+
+.nav-item:hover .nav-chevron {
+  color: #789889;
+}
+
+.nav-count {
+  height: 18px;
+  min-width: 18px;
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.system-card {
+  overflow: hidden;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: transparent;
+}
+
+.system-aurora {
+  display: none;
+}
+
+.system-label {
+  color: #8ba695;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.system-live {
+  color: #74d8ae;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.system-cpu-main strong {
+  font-size: 26px;
+}
+
+.system-cpu-main span,
+.system-cpu-pct {
+  font-size: 12px;
+}
+
+.system-row {
+  color: #89a191;
+  font-size: 12px;
+}
+
+.system-value {
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.system-foot {
+  color: #627e6e;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.sidebar-doc {
+  padding: 9px 7px;
+  color: #8ba695;
+  font-size: 13px;
+}
+
+.sidebar-doc-arrow {
+  font-size: 12px;
+}
+
+.sidebar-doc:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.sidebar-bottom {
+  margin-top: 10px;
+}
+
+.sidebar-signature {
+  padding: 10px 7px 0;
+  color: #5f7a6b;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.sidebar-signature .mono {
+  color: #7e998a;
+  font-size: 12px;
+}
+
+.workspace {
+  min-width: 0;
+  background: var(--bg);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.nav-backdrop {
+  background: rgba(4, 12, 9, 0.5);
+  backdrop-filter: none;
+}
+
+.icon-button:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--border-strong);
+  background: var(--panel-soft);
+}
+
+.topbar {
+  height: 64px;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--panel);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.crumb {
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+  box-shadow: none;
+}
+
+.crumb-root {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.crumb-root i {
+  width: 6px;
+  height: 6px;
+  box-shadow: none;
+}
+
+.crumb strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.cluster-chip {
+  height: 36px;
+  padding: 3px 9px 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.cluster-chip:hover {
+  border-color: var(--border-strong);
+  background: var(--panel-soft);
+  transform: none;
+}
+
+.cluster-chip-copy small {
+  color: var(--text-muted);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.cluster-chip-copy strong {
+  color: var(--text);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.topbar-right {
+  gap: 8px;
+}
+
+.service-pill {
+  font-size: 12px;
+}
+
+.icon-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+}
+
+.live-clock {
+  font-size: 12px;
+}
+
+.avatar {
+  width: 34px;
+  height: 34px;
+  font-size: 12px;
+}
+
+.app-content {
+  max-width: 1500px;
+  padding: 28px 32px 36px;
+}
+
+.app-footer {
+  margin: 0 32px;
+  padding: 14px 0 18px;
+  font-size: 12px;
+}
+
+.app-footer .mono {
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+@media (max-width: 1000px) {
+  .sidebar {
+    width: 272px;
+    padding: 18px 12px 14px;
+    border-radius: 0 10px 10px 0;
+  }
+
+  .topbar {
+    padding: 0 20px;
+  }
+
+  .sidebar-toggle {
+    display: none;
+  }
+
+  .app-content {
+    padding: 24px 20px 32px;
+  }
+
+  .app-footer {
+    margin: 0 20px;
+    padding-bottom: 16px;
+  }
+}
+
+@media (max-width: 560px) {
+  .app-content {
+    padding: 20px 16px 28px;
+  }
+
+  .app-footer {
+    margin: 0 16px;
+    font-size: 12px;
+  }
+
+  .crumb > *:not(strong) {
+    display: none;
+  }
+
+  .crumb {
+    gap: 0;
+    min-width: 0;
+  }
+
+  .crumb strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 </style>

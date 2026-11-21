@@ -30,21 +30,21 @@ const meta = computed(() => statusMeta[props.status])
   align-items: center;
   gap: 6px;
   width: fit-content;
-  padding: 4px 9px 4px 8px;
+  padding: 4px 8px;
   border: 1px solid color-mix(in srgb, var(--badge-color) 22%, transparent);
-  border-radius: 999px;
+  border-radius: 4px;
   background: var(--badge-bg);
   color: var(--badge-color);
-  font-size: 10.5px;
-  font-weight: 650;
-  letter-spacing: 0.01em;
-  line-height: 1.25;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.4;
   white-space: nowrap;
 }
 
 .status-badge.compact {
   padding: 3px 7px;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .status-dot {
@@ -56,7 +56,7 @@ const meta = computed(() => statusMeta[props.status])
 }
 
 .status-dot.live {
-  animation: soft-pulse 1.8s ease-out infinite;
+  animation: none;
 }
 
 .status-badge.pending {
@@ -70,8 +70,8 @@ const meta = computed(() => statusMeta[props.status])
 }
 
 .status-badge.succeeded {
-  --badge-color: #16865f;
-  --badge-bg: rgba(22, 134, 95, 0.1);
+  --badge-color: var(--accent);
+  --badge-bg: var(--accent-soft);
 }
 
 .status-badge.failed {
@@ -85,8 +85,8 @@ const meta = computed(() => statusMeta[props.status])
 }
 
 html.dark .status-badge.succeeded {
-  --badge-color: #4ad69e;
-  --badge-bg: rgba(74, 214, 158, 0.1);
+  --badge-color: var(--accent);
+  --badge-bg: var(--accent-soft);
 }
 
 @keyframes soft-pulse {
