@@ -1,0 +1,180 @@
+"""Database models for the platform."""
+
+from __future__ import annotations
+
+import enum
+from datetime import datetime
+
+from sqlalchemy import (
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.database import Base, utcnow
+
+
+class TaskStatus(str, enum.Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+    @property
+    def terminal(self) -> bool:
+        return self in {TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED}
+
+
+class AllocationState(str, enum.Enum):
+    ACTIVE = "active"
+    RELEASED = "released"
+
+
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id: Mapped[str] = mapped_column(String(24), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    owner: Mapped[str] = mapped_column(String(64), nullable=False, default="demo", index=True)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=TaskStatus.PENDING.value, index=True
+    )
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=50, index=True)
+
+    # Training configuration
+    model: Mapped[str] = mapped_column(String(160), nullable=False)
+    dataset: Mapped[str] = mapped_column(String(240), nullable=False)
+    epochs: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    imgsz: Mapped[int] = mapped_column(Integer, nullable=False, default=160)
+    batch_size: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
+    workers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    device: Mapped[str] = mapped_column(String(16), nullable=False, default="cpu")
+    command: Mapped[str] = mapped_column(Text, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Resource / lifecycle configuration
+    cpu_cores: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_runtime_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=1800)
+    max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Lifecycle timestamps
+    submitted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    queued_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # Execution state
+    executor: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    ray_actor_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pid_create_time: Mapped[float | None] = mapped_column(Float, nullable=True)
+    log_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    result_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    worker_token: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    # Outcome and live telemetry
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    progress: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    latest_cpu_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    latest_memory_mb: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    __table_args__ = (
+        Index("ix_tasks_status_priority_submitted", "status", "priority", "submitted_at"),
+        Index("ix_tasks_owner_status", "owner", "status"),
+    )
+
+    @property
+    def attempt(self) -> int:
+        return self.retry_count + 1
+
+    @property
+    def status_enum(self) -> TaskStatus:
+        return TaskStatus(self.status)
+
+
+class Node(Base):
+    __tablename__ = "nodes"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    hostname: Mapped[str] = mapped_column(String(160), nullable=False)
+    total_cpus: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="online")
+    last_seen: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
+class ResourceAllocation(Base):
+    __tablename__ = "resource_allocations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(
+        String(24), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    node_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    cpus: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=AllocationState.ACTIVE.value, index=True
+    )
+    allocated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class TaskMetric(Base):
+    __tablename__ = "task_metrics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(
+        String(24), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(96), nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("task_id", "name", "epoch", "step", name="uq_task_metric_point"),
+        Index("ix_task_metrics_task_epoch", "task_id", "epoch"),
+    )
+
+
+class ResourceSample(Base):
+    __tablename__ = "resource_samples"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(
+        String(24), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    cpu_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    memory_mb: Mapped[float] = mapped_column(Float, nullable=False)
+    process_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    sampled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
+class TaskEvent(Base):
+    __tablename__ = "task_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(
+        String(24), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    level: Mapped[str] = mapped_column(String(16), nullable=False, default="info")
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (Index("ix_task_events_task_created", "task_id", "created_at"),)
