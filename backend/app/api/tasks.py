@@ -138,6 +138,23 @@ def get_task_checkpoints(
 
 
 @router.post(
+    "/{task_id}/rerun",
+    response_model=TaskOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Rerun a finished task with the same configuration",
+)
+def rerun_task(task_id: str, ctx: AppContext = Depends(get_ctx)) -> TaskOut:
+    try:
+        task = ctx.tasks.rerun(task_id)
+        ctx.scheduler.wake()
+        return task
+    except TaskNotFoundError as exc:
+        raise _not_found(task_id) from exc
+    except TaskValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.post(
     "/{task_id}/resume",
     response_model=TaskOut,
     status_code=status.HTTP_201_CREATED,
@@ -149,7 +166,11 @@ def resume_task(
     ctx: AppContext = Depends(get_ctx),
 ) -> TaskOut:
     try:
-        task = ctx.tasks.resume(task_id, payload.mode)
+        task = ctx.tasks.resume(
+            task_id,
+            payload.mode,
+            checkpoint_epoch=payload.checkpoint_epoch,
+        )
         ctx.scheduler.wake()
         return task
     except TaskNotFoundError as exc:

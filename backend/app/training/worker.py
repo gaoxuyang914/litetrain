@@ -452,6 +452,28 @@ def run_evaluation(
 
 
 
+def _sync_resume_artifacts(source: Path, target: Path) -> None:
+    """Ultralytics full-resume writes into the checkpoint's original run directory."""
+    if not source.is_dir() or source.resolve() == target.resolve():
+        return
+    copied = []
+    for relative in ("weights/best.pt", "weights/last.pt", "results.csv", "args.yaml"):
+        origin = source / relative
+        if not origin.is_file():
+            continue
+        destination = target / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(origin, destination)
+        copied.append(relative)
+    for origin in sorted((source / "weights").glob("*.onnx")):
+        destination = target / "weights" / origin.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(origin, destination)
+        copied.append(f"weights/{origin.name}")
+    if copied:
+        print(f"[platform] copied resume artifacts: {', '.join(copied)}", flush=True)
+
+
 def run_training(args: argparse.Namespace, state: ProgressState, client: ControlPlaneClient) -> dict[str, float]:
     # These must be set before importing torch/ultralytics.
     compute_threads = max(
@@ -581,6 +603,12 @@ def run_training(args: argparse.Namespace, state: ProgressState, client: Control
     if args.patience is not None:
         train_kwargs["patience"] = args.patience
     model.train(**train_kwargs)
+    if resume_path is not None and args.resume_mode == "full" and args.project:
+        trainer = getattr(model, "trainer", None)
+        actual_save_dir = getattr(trainer, "save_dir", None)
+        target_dir = Path(args.project) / (args.name or args.task_id)
+        if actual_save_dir:
+            _sync_resume_artifacts(Path(actual_save_dir), target_dir)
     state.update(100.0, "finished")
     return last_metrics
 

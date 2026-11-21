@@ -42,11 +42,20 @@ def test_checkpoint_ingest_and_resume(client, ctx, payload):
         row.failure_reason = "unit test crash"
         session.flush()
 
-    resumed = client.post(f"/api/v1/tasks/{task['id']}/resume", json={"mode": "full"})
+    missing = client.post(
+        f"/api/v1/tasks/{task['id']}/resume",
+        json={"mode": "full", "checkpoint_epoch": 99},
+    )
+    assert missing.status_code == 404
+
+    resumed = client.post(
+        f"/api/v1/tasks/{task['id']}/resume",
+        json={"mode": "weights", "checkpoint_epoch": 1},
+    )
     assert resumed.status_code == 201, resumed.text
     resumed_task = resumed.json()
     assert resumed_task["resume_from_task_id"] == task["id"]
-    assert resumed_task["resume_mode"] == "full"
+    assert resumed_task["resume_mode"] == "weights"
     assert resumed_task["checkpoint_epoch"] == 1
 
 
@@ -59,3 +68,85 @@ def test_compare_tasks_uses_manifest_and_dataset(client, ctx, payload):
     assert body["compatible"] is True
     assert len(body["items"]) == 2
     assert body["items"][0]["manifest"]["dataset"]["content_sha256"]
+
+
+def test_task_distribution_time_windows(client, payload):
+    create_task(client, payload)
+    all_time = client.get("/api/v1/cluster/task-distribution?window=all")
+    assert all_time.status_code == 200, all_time.text
+    assert all_time.json()["total"] >= 1
+    assert all_time.json()["counts"]["pending"] >= 1
+
+    recent = client.get("/api/v1/cluster/task-distribution?window=5m")
+    assert recent.status_code == 200, recent.text
+    assert recent.json()["total"] >= 1
+    assert recent.json()["since"]
+
+    half_year = client.get("/api/v1/cluster/task-distribution?window=180d")
+    assert half_year.status_code == 200
+    assert half_year.json()["label"] == "近半年"
+
+
+def test_rerun_clones_finished_task(client, ctx, payload):
+    from app.models import Task
+
+    task = create_task(client, payload)
+    with ctx.db.session() as session:
+        row = session.get(Task, task["id"])
+        assert row is not None
+        row.status = "cancelled"
+        session.flush()
+    response = client.post(f"/api/v1/tasks/{task['id']}/rerun")
+    assert response.status_code == 201, response.text
+    rerun = response.json()
+    assert rerun["id"] != task["id"]
+    assert rerun["name"].endswith("rerun")
+    assert rerun["epochs"] == task["epochs"]
+    assert rerun["cpu_cores"] == task["cpu_cores"]
+    assert rerun["resume_from_task_id"] is None
+
+    with ctx.db.session() as session:
+        row = session.get(Task, rerun["id"])
+        assert row is not None
+        row.status = "cancelled"
+        session.flush()
+    second = client.post(f"/api/v1/tasks/{rerun['id']}/rerun")
+    assert second.status_code == 201, second.text
+    assert second.json()["name"] == rerun["name"] == "unit smoke · rerun"
+
+
+def test_unregistered_dataset_cannot_bypass_quality_gate(client, payload):
+    options = client.get("/api/v1/tasks/options")
+    assert options.status_code == 200
+    assert options.json()["datasets"] == ["coco128.yaml"]
+
+    response = client.post(
+        "/api/v1/tasks",
+        json={**payload, "dataset": "legacy-unregistered.yaml"},
+    )
+    assert response.status_code == 422
+    assert "not registered" in response.json()["detail"]
+
+
+def test_resume_artifacts_are_copied_to_new_run():
+    import tempfile
+
+    from app.training.worker import _sync_resume_artifacts
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        source = root / "old-run"
+        target = root / "new-run"
+        (source / "weights").mkdir(parents=True)
+        target.mkdir()
+        (source / "weights" / "best.pt").write_bytes(b"best")
+        (source / "weights" / "last.pt").write_bytes(b"last")
+        (source / "results.csv").write_text("epoch,mAP50\n1,0.5\n", encoding="utf-8")
+        (source / "args.yaml").write_text("epochs: 1\n", encoding="utf-8")
+
+        _sync_resume_artifacts(source, target)
+
+        assert (target / "weights" / "best.pt").read_bytes() == b"best"
+        assert (target / "weights" / "last.pt").read_bytes() == b"last"
+        assert (target / "results.csv").is_file()
+        assert (target / "args.yaml").is_file()

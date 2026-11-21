@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   Box,
   Connection,
@@ -10,6 +10,7 @@ import {
   FolderOpened,
   Plus,
   Refresh,
+  Search,
   UploadFilled,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -19,12 +20,15 @@ import type { Artifact, Dataset, DatasetQuality, WebhookDelivery, WebhookEndpoin
 import { copyText, formatBytes, formatDate, timeAgo } from '@/utils/format'
 
 const router = useRouter()
+const route = useRoute()
 type Tab = 'datasets' | 'artifacts' | 'webhooks'
 const activeTab = ref<Tab>('datasets')
 
 const datasets = ref<Dataset[]>([])
 const artifacts = ref<Artifact[]>([])
 const artifactFilter = ref<'all' | 'model' | 'metrics' | 'config'>('all')
+const artifactQuery = ref('')
+const artifactTaskFilter = ref('')
 const artifactPage = ref(1)
 const artifactPageSize = 10
 const webhooks = ref<WebhookEndpoint[]>([])
@@ -65,11 +69,17 @@ let timer: number | undefined
 
 const activeWebhooks = computed(() => webhooks.value.filter((item) => item.active).length)
 const artifactBytes = computed(() => artifacts.value.reduce((sum, item) => sum + item.size_bytes, 0))
-const filteredArtifacts = computed(() =>
-  artifactFilter.value === 'all'
-    ? artifacts.value
-    : artifacts.value.filter((item) => item.kind === artifactFilter.value),
-)
+const filteredArtifacts = computed(() => {
+  const query = artifactQuery.value.trim().toLowerCase()
+  return artifacts.value.filter((item) => {
+    if (artifactFilter.value !== 'all' && item.kind !== artifactFilter.value) return false
+    if (artifactTaskFilter.value && item.task_id !== artifactTaskFilter.value) return false
+    if (!query) return true
+    return [item.name, item.task_id, item.sha256, item.kind]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query))
+  })
+})
 const pagedArtifacts = computed(() =>
   filteredArtifacts.value.slice(
     (artifactPage.value - 1) * artifactPageSize,
@@ -429,8 +439,33 @@ watch(artifactFilter, () => {
   artifactPage.value = 1
 })
 
+watch(artifactQuery, () => {
+  artifactPage.value = 1
+})
+
+function clearArtifactTask() {
+  artifactTaskFilter.value = ''
+  const query = { ...route.query }
+  delete query.task_id
+  router.replace({ query })
+}
+
 onMounted(async () => {
-  await Promise.all([load(), api.listArtifacts().then((items) => (artifacts.value = items)).catch(() => undefined), api.listWebhooks().then((items) => (webhooks.value = items)).catch(() => undefined), api.listWebhookDeliveries().then((items) => (deliveries.value = items)).catch(() => undefined)])
+  const requestedTab = String(route.query.tab || '')
+  const requestedTask = String(route.query.task_id || '')
+  if (['datasets', 'artifacts', 'webhooks'].includes(requestedTab)) {
+    activeTab.value = requestedTab as Tab
+  } else if (requestedTask) {
+    activeTab.value = 'artifacts'
+  }
+  artifactTaskFilter.value = requestedTask
+  await Promise.all([
+    load(),
+    api.listDatasets().then((items) => (datasets.value = items)).catch(() => undefined),
+    api.listArtifacts().then((items) => (artifacts.value = items)).catch(() => undefined),
+    api.listWebhooks().then((items) => (webhooks.value = items)).catch(() => undefined),
+    api.listWebhookDeliveries().then((items) => (deliveries.value = items)).catch(() => undefined),
+  ])
   loading.value = false
   timer = window.setInterval(() => {
     if (document.hidden) return
@@ -618,6 +653,18 @@ onBeforeUnmount(() => {
           >
             {{ filter.label }}
           </button>
+          <span v-if="artifactTaskFilter" class="artifact-task-filter">
+            任务 <button class="mono" type="button" @click="openTask(artifactTaskFilter)">{{ artifactTaskFilter }}</button>
+            <button type="button" class="artifact-filter-clear" title="清除任务筛选" @click="clearArtifactTask">×</button>
+          </span>
+          <el-input
+            v-model="artifactQuery"
+            class="artifact-search"
+            size="small"
+            clearable
+            :prefix-icon="Search"
+            placeholder="搜索产物 / 任务 ID / SHA"
+          />
           <span class="filter-count mono">{{ filteredArtifacts.length }} / {{ artifacts.length }}</span>
         </div>
         <el-table :data="pagedArtifacts" row-key="id" class="asset-table">
@@ -751,7 +798,7 @@ onBeforeUnmount(() => {
       </template>
     </section>
 
-    <el-dialog v-model="qualityOpen" title="数据质量报告" width="720px">
+    <el-dialog v-model="qualityOpen" title="数据质量报告" width="720px" class="quality-dialog">
       <div v-if="qualityBusy && !qualityData" class="quality-loading">
         <el-skeleton :rows="5" animated />
       </div>
@@ -2513,6 +2560,17 @@ html.dark .asset-tab.active strong {
   padding: 10px 0;
 }
 
+:global(.quality-dialog .el-dialog__footer) {
+  border-top: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding-top: 4px;
+}
+
+:global(.quality-dialog .el-dialog__body) {
+  border-bottom: 0 !important;
+}
+
 @media (max-width: 600px) {
   .quality-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2527,3 +2585,171 @@ html.dark .asset-tab.active strong {
   }
 }
 </style>
+
+<style scoped>
+/* Ultralytics-inspired light asset surfaces */
+.assets-page .dataset-icon,
+.assets-page .empty-icon {
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.assets-page .asset-tab {
+  border-radius: 10px;
+}
+
+.assets-page .asset-tab.active {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.assets-page .asset-tab.active .el-icon {
+  color: var(--accent);
+}
+
+.assets-page .asset-tab strong {
+  color: inherit;
+}
+
+.assets-page .asset-tab small {
+  color: var(--text-muted);
+}
+
+.assets-page .dataset-cta {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+  color: var(--text);
+}
+
+.assets-page .dataset-cta-copy h3 {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.assets-page .dataset-cta-copy p {
+  color: var(--text-muted);
+}
+
+.assets-page .dataset-cta .soft-label {
+  color: var(--accent);
+}
+
+.assets-page .dataset-cta-mark span {
+  background: var(--accent);
+  opacity: 0.18;
+}
+
+.assets-page .dataset-cta-mark span:nth-child(2) {
+  opacity: 0.35;
+}
+
+.assets-page .dataset-cta-mark span:nth-child(3) {
+  opacity: 0.6;
+}
+
+.assets-page .soft-tag {
+  border-color: var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text-muted);
+}
+
+.assets-page .soft-tag.builtin {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.assets-page .count-pill {
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
+  color: var(--text-secondary);
+}
+
+.assets-page .quality-pill {
+  border-radius: 999px;
+}
+
+.assets-page .quality-pill.passed {
+  border-color: color-mix(in srgb, var(--success) 24%, transparent);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+@media (max-width: 760px) {
+  .assets-page .dataset-cta-copy h3 {
+    font-size: 21px;
+  }
+}
+</style>
+
+<style scoped>
+/* Artifact filters */
+.artifact-toolbar {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.artifact-search {
+  width: 238px;
+  margin-left: auto;
+}
+
+.filter-count {
+  flex: none;
+  margin-left: 0;
+}
+
+.artifact-task-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 3px 5px 3px 9px;
+  border: 1px solid var(--accent-line);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.artifact-task-filter button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.artifact-filter-clear {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  color: var(--accent) !important;
+  font-size: 15px !important;
+  line-height: 1;
+}
+
+.artifact-filter-clear:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+@media (max-width: 900px) {
+  .artifact-search {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .filter-count {
+    margin-left: auto;
+  }
+}
+</style>
+

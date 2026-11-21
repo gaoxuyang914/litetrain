@@ -1,5 +1,29 @@
 export type TaskStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
+export type TaskDistributionWindow =
+  | '5m'
+  | '15m'
+  | '30m'
+  | '1h'
+  | '3h'
+  | '6h'
+  | '12h'
+  | '24h'
+  | '7d'
+  | '30d'
+  | '90d'
+  | '180d'
+  | 'all'
+
+export interface TaskDistribution {
+  window: TaskDistributionWindow
+  label: string
+  since: string | null
+  generated_at: string
+  total: number
+  counts: Record<TaskStatus, number>
+}
+
 export interface Task {
   id: string
   name: string
@@ -87,6 +111,12 @@ export interface TaskCheckpoint {
   metrics: Record<string, number>
   is_best: boolean
   created_at: string
+}
+
+export interface TaskCheckpointList {
+  items: TaskCheckpoint[]
+  total: number
+  fallback_available: boolean
 }
 
 export interface TaskManifest {

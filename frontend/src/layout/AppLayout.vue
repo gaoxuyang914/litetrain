@@ -12,6 +12,7 @@ import {
   MagicStick,
   Menu as MenuIcon,
   Moon,
+  Search,
   Share,
   Sunny,
   Tickets,
@@ -29,12 +30,11 @@ const { isDark, toggleTheme } = useTheme()
 const { enabled: notificationsEnabled, setEnabled } = useNotifications()
 
 const mobileNavOpen = ref(false)
+const navSearch = ref('')
 const overview = ref<ClusterOverview | null>(null)
-const clock = ref(new Date().toLocaleTimeString('zh-CN', { hour12: false }))
 const SIDEBAR_KEY = 'litetrain.sidebar.collapsed'
 const sidebarCollapsed = ref(localStorage.getItem(SIDEBAR_KEY) === '1')
 let statusTimer: number | undefined
-let clockTimer: number | undefined
 
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
@@ -54,16 +54,16 @@ const navGroups = [
   {
     label: '工作台',
     items: [
-      { name: 'overview', label: '集群总览', caption: 'CPU 与队列', icon: DataAnalysis, path: '/overview' },
-      { name: 'tasks', label: '任务列表', caption: '提交与追踪', icon: Tickets, path: '/tasks' },
-      { name: 'task-submit', label: '提交任务', caption: 'YOLO · CPU', icon: MagicStick, path: '/tasks/new' },
+      { name: 'overview', label: '集群总览', icon: DataAnalysis, path: '/overview' },
+      { name: 'tasks', label: '任务列表', icon: Tickets, path: '/tasks' },
+      { name: 'task-submit', label: '提交任务', icon: MagicStick, path: '/tasks/new' },
     ],
   },
   {
     label: '编排与资产',
     items: [
-      { name: 'pipelines', label: '训练流水线', caption: '预处理 → 评估', icon: Share, path: '/pipelines' },
-      { name: 'assets', label: '数据与产物', caption: '数据集 · Webhook', icon: FolderOpened, path: '/assets' },
+      { name: 'pipelines', label: '训练流水线', icon: Share, path: '/pipelines' },
+      { name: 'assets', label: '数据与产物', icon: FolderOpened, path: '/assets' },
     ],
   },
 ]
@@ -79,10 +79,6 @@ const onlineNodeCount = computed(
   () => overview.value?.nodes.filter((node) => node.status === 'online').length ?? 0,
 )
 
-const backendLabel = computed(() =>
-  overview.value?.services.execution_backend === 'ray' ? 'Ray' : '本地',
-)
-
 const cpuLabel = computed(
   () => `${overview.value?.cpu.allocated ?? 0} / ${overview.value?.cpu.total ?? '—'}`,
 )
@@ -90,6 +86,14 @@ const cpuLabel = computed(
 function isActive(name: string): boolean {
   if (name === 'tasks') return route.name === 'tasks'
   return route.name === name
+}
+
+function searchTasks() {
+  const query = navSearch.value.trim()
+  if (!query) return
+  router.push({ name: 'tasks', query: { q: query } })
+  navSearch.value = ''
+  mobileNavOpen.value = false
 }
 
 async function refreshStatus() {
@@ -116,9 +120,6 @@ function navigate(name: string) {
 onMounted(() => {
   refreshStatus()
   statusTimer = window.setInterval(refreshStatus, 10_000)
-  clockTimer = window.setInterval(() => {
-    clock.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-  }, 1000)
   window.addEventListener('keydown', onShortcut)
 })
 
@@ -129,7 +130,6 @@ watch(
 
 onBeforeUnmount(() => {
   if (statusTimer) window.clearInterval(statusTimer)
-  if (clockTimer) window.clearInterval(clockTimer)
   window.removeEventListener('keydown', onShortcut)
 })
 </script>
@@ -163,6 +163,17 @@ onBeforeUnmount(() => {
         </el-tooltip>
       </div>
 
+      <label class="nav-search">
+        <el-icon><Search /></el-icon>
+        <input
+          v-model="navSearch"
+          type="search"
+          placeholder="搜索任务…"
+          aria-label="搜索任务"
+          @keyup.enter="searchTasks"
+        />
+      </label>
+
       <div class="nav-block" v-for="group in navGroups" :key="group.label">
         <p class="nav-label">{{ group.label }}</p>
         <nav class="nav-list">
@@ -172,7 +183,7 @@ onBeforeUnmount(() => {
             type="button"
             class="nav-item"
             :class="{ active: isActive(item.name) }"
-            :title="sidebarCollapsed ? `${item.label} · ${item.caption}` : undefined"
+            :title="sidebarCollapsed ? item.label : undefined"
             :aria-label="item.label"
             @click="navigate(item.name)"
           >
@@ -181,7 +192,6 @@ onBeforeUnmount(() => {
             </span>
             <span class="nav-copy">
               <strong>{{ item.label }}</strong>
-              <small>{{ item.caption }}</small>
             </span>
             <span v-if="item.name === 'tasks' && overview?.tasks.pending" class="nav-count">
               {{ overview.tasks.pending }}
@@ -231,6 +241,10 @@ onBeforeUnmount(() => {
           <span class="system-value accent">{{ onlineNodeCount }} 在线</span>
         </div>
         <p class="system-foot">{{ cpuLabel }} 核已分配</p>
+        <button class="system-action" type="button" @click="navigate('task-submit')">
+          <el-icon><MagicStick /></el-icon>
+          提交训练
+        </button>
       </div>
 
       <div class="sidebar-bottom">
@@ -240,7 +254,7 @@ onBeforeUnmount(() => {
           <span class="sidebar-doc-arrow">↗</span>
         </a>
         <div class="sidebar-signature">
-          <span class="mono">v2.4.0</span>
+          <span class="mono">v2.5.0</span>
           <span>仅 CPU · 本地优先</span>
         </div>
       </div>    </aside>
@@ -270,17 +284,6 @@ onBeforeUnmount(() => {
               <strong>{{ cpuLabel }} 核</strong>
             </span>
           </button>
-          <span class="topbar-divider"></span>
-          <div class="service-pills">
-            <span class="service-pill" :class="{ online: overview?.services.redis_connected }">
-              <i></i>
-              Redis
-            </span>
-            <span class="service-pill" :class="{ online: overview?.services.ray_connected }">
-              <i></i>
-              Ray
-            </span>
-          </div>
 
           <el-tooltip
             :content="notificationsEnabled ? '关闭任务完成通知' : '开启任务完成通知'"
@@ -309,12 +312,6 @@ onBeforeUnmount(() => {
             </button>
           </el-tooltip>
 
-          <span class="live-clock mono">
-            <i></i>
-            <span>{{ backendLabel }}</span>
-            <em>{{ clock }}</em>
-          </span>
-
           <span class="avatar" title="demo owner">LT</span>
         </div>
       </header>
@@ -328,7 +325,7 @@ onBeforeUnmount(() => {
       </main>
 
       <footer class="app-footer">
-        <span>LiteTrain 2.4 · CPU-only YOLO training control plane</span>
+        <span>LiteTrain 2.5 · CPU-only YOLO training control plane</span>
         <span class="mono">FastAPI · Redis · Ray · SQLite</span>
       </footer>
     </div>
@@ -2246,6 +2243,488 @@ onBeforeUnmount(() => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+}
+</style>
+
+<style scoped>
+/* Ultralytics platform-inspired light shell */
+.sidebar {
+  width: 228px;
+  padding: 18px 12px 14px;
+  border-right: 1px solid var(--sidebar-line);
+  background: var(--sidebar);
+  color: var(--text);
+}
+
+.brand {
+  gap: 9px;
+  padding: 4px 6px 22px;
+}
+
+.brand-mark i {
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.brand-mark i:nth-child(2),
+.brand-mark i:nth-child(3) {
+  background: color-mix(in srgb, var(--accent) 44%, white);
+}
+
+.brand-mark i:nth-child(4) {
+  background: #06b6d4;
+}
+
+html.dark .brand-mark i:nth-child(4) {
+  background: #22d3ee;
+}
+
+.brand-copy strong {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.brand-copy small {
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.brand::after {
+  background: var(--sidebar-line);
+}
+
+.sidebar-toggle {
+  border-color: var(--border);
+  background: var(--panel);
+  color: var(--text-muted);
+}
+
+.sidebar-toggle:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.nav-label {
+  padding: 0 8px;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.nav-label::after {
+  background: var(--sidebar-line);
+}
+
+.nav-item {
+  gap: 9px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-secondary);
+}
+
+.nav-item:hover {
+  background: var(--panel-soft);
+  color: var(--text);
+  transform: none;
+}
+
+.nav-item.active {
+  border-color: transparent;
+  background: var(--accent-soft);
+  box-shadow: none;
+  color: var(--accent);
+}
+
+.nav-item.active::before {
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+}
+
+.nav-icon {
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.nav-item:hover .nav-icon {
+  color: var(--text-secondary);
+}
+
+.nav-item.active .nav-icon {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--accent);
+  box-shadow: none;
+}
+
+.nav-icon .el-icon {
+  font-size: 16px;
+}
+
+.nav-copy strong {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.nav-copy small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.nav-item.active .nav-copy strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.nav-item.active .nav-copy small {
+  color: var(--accent);
+  opacity: 0.7;
+}
+
+.nav-chevron {
+  color: transparent;
+}
+
+.nav-item:hover .nav-chevron {
+  color: var(--text-muted);
+}
+
+.nav-count {
+  height: 18px;
+  min-width: 18px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+}
+
+.nav-count.live {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.system-card {
+  overflow: hidden;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.system-aurora {
+  display: none;
+}
+
+.system-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.system-live {
+  color: var(--success);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.system-cpu-main strong {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+}
+
+.system-cpu-main span,
+.system-cpu-pct {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.system-meter {
+  background: var(--panel-soft);
+}
+
+.system-meter span {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.system-row {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.system-value {
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.system-value.ok {
+  color: var(--success);
+}
+
+.system-value.accent {
+  color: var(--accent);
+}
+
+.system-foot {
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.system-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 32px;
+  margin-top: 11px;
+  border: 1px solid #111111;
+  border-radius: 7px;
+  background: #111111;
+  color: #ffffff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.system-action:hover {
+  background: #27272a;
+}
+
+.sidebar-doc {
+  padding: 9px 7px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.sidebar-doc:hover {
+  background: var(--panel-soft);
+  color: var(--text);
+}
+
+.sidebar-doc-arrow {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.sidebar-signature {
+  padding: 10px 7px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.sidebar-signature .mono {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.workspace {
+  background: var(--bg);
+}
+
+.topbar {
+  height: 64px;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--panel);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.crumb {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.crumb-root i {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.crumb strong {
+  color: var(--text);
+}
+
+.cluster-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.cluster-chip:hover {
+  border-color: var(--border-strong);
+  background: var(--panel-soft);
+  transform: none;
+}
+
+.cluster-chip-copy small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.cluster-chip-copy strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.service-pill {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.service-pill.online {
+  color: var(--text-secondary);
+}
+
+.icon-button {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text-secondary);
+}
+
+.icon-button:hover {
+  border-color: var(--border-strong);
+  background: var(--panel-soft);
+  transform: none;
+  box-shadow: none;
+}
+
+.live-clock {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.avatar {
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+}
+
+.app-content {
+  max-width: 1500px;
+  padding: 26px 30px 34px;
+}
+
+.app-footer {
+  margin: 0 30px;
+  padding: 14px 0 18px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.app-footer .mono {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.nav-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  margin: 0 4px 18px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text-muted);
+}
+
+.nav-search:focus-within {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.nav-search .el-icon {
+  flex: none;
+  font-size: 14px;
+}
+
+.nav-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.nav-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.sidebar-collapsed .nav-search {
+  display: none;
+}
+
+.sidebar-collapsed .system-action {
+  display: none;
+}
+
+@media (max-width: 1000px) {
+  .sidebar {
+    width: 272px;
+    border-radius: 0 14px 14px 0;
+  }
+
+  .topbar {
+    padding: 0 20px;
+  }
+
+  .app-content {
+    padding: 22px 20px 30px;
+  }
+
+  .app-footer {
+    margin: 0 20px;
+  }
+}
+
+@media (max-width: 560px) {
+  .app-content {
+    padding: 18px 16px 26px;
+  }
+
+  .app-footer {
+    margin: 0 16px;
+    font-size: 11px;
   }
 }
 </style>

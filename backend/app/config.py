@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     heartbeat_interval_seconds: int = Field(default=4, ge=1, le=60)
     heartbeat_timeout_seconds: int = Field(default=25, ge=5, le=600)
     start_grace_seconds: int = Field(default=15, ge=2, le=300)
-    default_max_retries: int = Field(default=0, ge=0, le=5)
+    default_max_retries: int = Field(default=3, ge=0, le=5)
 
     # Redis (protocol 2 also supports the Redis 5 build shipped on Windows)
     redis_url: str = "redis://127.0.0.1:6379/0"

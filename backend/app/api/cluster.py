@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, select
 
 from app import __version__
 from app.api.deps import get_ctx
 from app.context import AppContext
+from app.database import utcnow
+from app.models import Task, TaskStatus
 from app.schemas import (
     BenchmarkCreate,
     BenchmarkOut,
@@ -16,11 +21,57 @@ from app.schemas import (
     NodeStatusUpdate,
     NodeTopologyRequest,
     NodeTopologyResponse,
+    TaskDistributionOut,
 )
 from app.services.benchmark import BenchmarkError
 from app.services.resources import ResourceError
 
 router = APIRouter(prefix="/cluster", tags=["cluster"])
+
+DISTRIBUTION_WINDOWS = {
+    "5m": ("近 5 分钟", 5 * 60),
+    "15m": ("近 15 分钟", 15 * 60),
+    "30m": ("近 30 分钟", 30 * 60),
+    "1h": ("近 1 小时", 60 * 60),
+    "3h": ("近 3 小时", 3 * 60 * 60),
+    "6h": ("近 6 小时", 6 * 60 * 60),
+    "12h": ("近 12 小时", 12 * 60 * 60),
+    "24h": ("近 24 小时", 24 * 60 * 60),
+    "7d": ("近 7 天", 7 * 24 * 60 * 60),
+    "30d": ("近 30 天", 30 * 24 * 60 * 60),
+    "90d": ("近 90 天", 90 * 24 * 60 * 60),
+    "180d": ("近半年", 180 * 24 * 60 * 60),
+    "all": ("全部时间", None),
+}
+
+
+@router.get(
+    "/task-distribution",
+    response_model=TaskDistributionOut,
+    summary="Task status distribution for a time window",
+)
+def task_distribution(
+    window: str = Query(default="all", pattern="^(5m|15m|30m|1h|3h|6h|12h|24h|7d|30d|90d|180d|all)$"),
+    ctx: AppContext = Depends(get_ctx),
+) -> TaskDistributionOut:
+    label, seconds = DISTRIBUTION_WINDOWS[window]
+    generated = utcnow()
+    since = generated - timedelta(seconds=seconds) if seconds is not None else None
+    counts = {status.value: 0 for status in TaskStatus}
+    with ctx.db.session() as session:
+        statement = select(Task.status, func.count(Task.id)).group_by(Task.status)
+        if since is not None:
+            statement = statement.where(Task.submitted_at >= since)
+        for status, count in session.execute(statement):
+            counts[status] = int(count)
+    return TaskDistributionOut(
+        window=window,
+        label=label,
+        since=since,
+        generated_at=generated,
+        total=sum(counts.values()),
+        counts=counts,
+    )
 
 
 @router.get("/overview", response_model=ClusterOverview, summary="CPU, node and queue overview")

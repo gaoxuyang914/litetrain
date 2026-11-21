@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Cpu,
   DataLine,
+  FullScreen,
   Monitor,
   Odometer,
   Plus,
@@ -17,7 +18,12 @@ import { ElMessage } from 'element-plus'
 import { api } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge.vue'
 import type { BenchmarkRun, NodeTopologyItem } from '@/types/p2'
-import type { ClusterOverview, Task } from '@/types/task'
+import type {
+  ClusterOverview,
+  Task,
+  TaskDistribution,
+  TaskDistributionWindow,
+} from '@/types/task'
 import {
   formatDuration,
   formatPercent,
@@ -39,6 +45,10 @@ const benchmarkOpen = ref(false)
 const benchmarkBusy = ref(false)
 const benchmark = ref<BenchmarkRun | null>(null)
 const benchmarkForm = ref({ threads: '4,8', workers: '0', imgsz: 160, batch: 4 })
+const distributionOpen = ref(false)
+const distributionRange = ref<TaskDistributionWindow>('all')
+const distribution = ref<TaskDistribution | null>(null)
+const distributionLoading = ref(false)
 let benchmarkTimer: number | undefined
 let timer: number | undefined
 
@@ -55,11 +65,11 @@ const statusRows = computed(() => {
   const tasks = overview.value?.tasks
   if (!tasks) return []
   return [
-    { label: '运行中', value: tasks.running, color: 'var(--accent)', key: 'running' },
-    { label: '等待调度', value: tasks.pending, color: 'var(--amber)', key: 'pending' },
-    { label: '成功', value: tasks.succeeded, color: '#16865f', key: 'succeeded' },
-    { label: '失败', value: tasks.failed, color: 'var(--red)', key: 'failed' },
-    { label: '已取消', value: tasks.cancelled, color: 'var(--text-muted)', key: 'cancelled' },
+    { label: '运行中', value: tasks.running, color: '#0b23a9', key: 'running' },
+    { label: '等待调度', value: tasks.pending, color: '#b45309', key: 'pending' },
+    { label: '成功', value: tasks.succeeded, color: '#047857', key: 'succeeded' },
+    { label: '失败', value: tasks.failed, color: '#b91c1c', key: 'failed' },
+    { label: '已取消', value: tasks.cancelled, color: '#737373', key: 'cancelled' },
   ]
 })
 
@@ -74,6 +84,60 @@ const maxTaskCount = computed(() => {
   const values = statusRows.value.map((item) => item.value)
   return Math.max(1, ...values)
 })
+
+const distributionOptions: Array<{ value: TaskDistributionWindow; label: string }> = [
+  { value: '5m', label: '近 5 分钟' },
+  { value: '15m', label: '近 15 分钟' },
+  { value: '30m', label: '近 30 分钟' },
+  { value: '1h', label: '近 1 小时' },
+  { value: '3h', label: '近 3 小时' },
+  { value: '6h', label: '近 6 小时' },
+  { value: '12h', label: '近 12 小时' },
+  { value: '24h', label: '近 24 小时' },
+  { value: '7d', label: '近 7 天' },
+  { value: '30d', label: '近 30 天' },
+  { value: '90d', label: '近 90 天' },
+  { value: '180d', label: '近半年' },
+  { value: 'all', label: '全部时间' },
+]
+
+const distributionRows = computed(() => {
+  const counts = distribution.value?.counts
+  if (!counts) return []
+  return [
+    { label: '运行中', value: counts.running, color: '#0b23a9', key: 'running' },
+    { label: '等待调度', value: counts.pending, color: '#b45309', key: 'pending' },
+    { label: '成功', value: counts.succeeded, color: '#047857', key: 'succeeded' },
+    { label: '失败', value: counts.failed, color: '#b91c1c', key: 'failed' },
+    { label: '已取消', value: counts.cancelled, color: '#737373', key: 'cancelled' },
+  ]
+})
+
+const maxDistributionCount = computed(() => {
+  const values = distributionRows.value.map((item) => item.value)
+  return Math.max(1, ...values)
+})
+
+async function fetchDistribution() {
+  distributionLoading.value = true
+  try {
+    distribution.value = await api.getTaskDistribution(distributionRange.value)
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '读取状态分布失败')
+  } finally {
+    distributionLoading.value = false
+  }
+}
+
+function openDistribution() {
+  distributionOpen.value = true
+  fetchDistribution()
+}
+
+function distributionPercent(value: number): string {
+  const total = distribution.value?.total ?? 0
+  return total > 0 ? `${Math.round((value / total) * 100)}%` : '0%'
+}
 
 const cpuRingBackground = computed(() => {
   const pct = Math.max(1.5, Math.min(100, cpu.value?.utilization_percent ?? 0))
@@ -272,9 +336,6 @@ onBeforeUnmount(() => {
           <h1 class="page-title">集群总览</h1>
           <span class="title-live"><i></i>实时</span>
         </div>
-        <p class="page-subtitle">
-          查看逻辑 CPU 配额、队列压力与 Ray 执行器状态。资源释放后，等待中的任务会自动被调度。
-        </p>
         <div class="page-signals">
           <span><i class="signal-dot"></i>{{ onlineNodes.length }} 个节点在线</span>
           <span>Ray {{ services?.ray_cpus ?? '—' }} 核</span>
@@ -558,7 +619,10 @@ onBeforeUnmount(() => {
           <div class="panel queue-panel">
             <div class="panel-head">
               <h2>状态分布</h2>
-              <span class="panel-caption">全部时间</span>
+              <button class="distribution-expand" type="button" title="放大查看状态分布" @click="openDistribution">
+                <span>全部时间</span>
+                <el-icon><FullScreen /></el-icon>
+              </button>
             </div>
             <div class="panel-body status-distribution">
               <div v-for="row in statusRows" :key="row.key" class="dist-row">
@@ -670,10 +734,41 @@ onBeforeUnmount(() => {
           Benchmark 用 1 个 epoch 测量吞吐、峰值内存和耗时，不会占用训练队列。训练进行中时不可启动。
         </p>
         <div class="benchmark-form">
-          <el-input v-model="benchmarkForm.threads" placeholder="线程，如 4,8" />
-          <el-input v-model="benchmarkForm.workers" placeholder="Workers，如 0" />
-          <el-input-number v-model="benchmarkForm.imgsz" :min="64" :max="640" :step="32" />
-          <el-input-number v-model="benchmarkForm.batch" :min="1" :max="64" />
+          <label class="benchmark-field">
+            <span class="benchmark-label">计算线程</span>
+            <el-input
+              v-model="benchmarkForm.threads"
+              placeholder="4,8"
+              aria-label="计算线程，逗号分隔"
+            />
+          </label>
+          <label class="benchmark-field">
+            <span class="benchmark-label">数据线程</span>
+            <el-input
+              v-model="benchmarkForm.workers"
+              placeholder="0"
+              aria-label="DataLoader workers，逗号分隔"
+            />
+          </label>
+          <label class="benchmark-field">
+            <span class="benchmark-label">图像尺寸</span>
+            <el-input-number
+              v-model="benchmarkForm.imgsz"
+              :min="64"
+              :max="640"
+              :step="32"
+              aria-label="图像尺寸"
+            />
+          </label>
+          <label class="benchmark-field">
+            <span class="benchmark-label">批大小</span>
+            <el-input-number
+              v-model="benchmarkForm.batch"
+              :min="1"
+              :max="64"
+              aria-label="批大小"
+            />
+          </label>
           <el-button type="primary" :loading="benchmarkBusy" @click="startBenchmark">开始测试</el-button>
         </div>
 
@@ -714,6 +809,58 @@ onBeforeUnmount(() => {
         </el-table>
         <p class="benchmark-intro">
           推荐值需在提交任务页手动应用；Benchmark 不会自动修改运行中的任务。
+        </p>
+      </el-dialog>
+
+      <el-dialog
+        v-model="distributionOpen"
+        title="任务状态分布"
+        width="min(760px, calc(100vw - 32px))"
+      >
+        <div class="distribution-toolbar">
+          <div class="distribution-range">
+            <span class="soft-label">统计范围</span>
+            <el-select
+              v-model="distributionRange"
+              size="small"
+              class="distribution-select"
+              @change="fetchDistribution"
+            >
+              <el-option
+                v-for="option in distributionOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </div>
+          <span class="distribution-total">
+            {{ distribution?.label ?? '全部时间' }} · 共
+            <strong>{{ distribution?.total ?? 0 }}</strong> 个任务
+          </span>
+        </div>
+
+        <div v-loading="distributionLoading" class="distribution-large">
+          <div v-for="row in distributionRows" :key="row.key" class="distribution-row">
+            <span class="distribution-label">
+              <i :style="{ background: row.color }"></i>
+              {{ row.label }}
+            </span>
+            <div class="distribution-track">
+              <span
+                :style="{
+                  width: `${(row.value / maxDistributionCount) * 100}%`,
+                  background: row.color,
+                }"
+              ></span>
+            </div>
+            <strong class="mono">{{ row.value }}</strong>
+            <span class="distribution-percent">{{ distributionPercent(row.value) }}</span>
+          </div>
+        </div>
+
+        <p class="distribution-note">
+          按任务提交时间筛选后统计当前状态；时间范围最长可选近半年。数据来自 SQLite，切换范围会重新查询。
         </p>
       </el-dialog>
     </template>
@@ -2159,13 +2306,13 @@ html.dark .accent-card {
 
 .metric-host .host-bars i {
   width: 6px;
-  background: color-mix(in srgb, var(--copper) 24%, var(--border));
+  background: color-mix(in srgb, var(--accent) 16%, var(--border));
   opacity: 0.7;
   transition: height 0.45s ease, opacity 0.2s ease, background 0.2s ease;
 }
 
 .metric-host .host-bars i.on {
-  background: var(--copper);
+  background: var(--accent);
   opacity: 0.82;
 }
 
@@ -3275,8 +3422,22 @@ html.dark .accent-card {
 .benchmark-form {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px 8px;
   margin: 16px 0;
+}
+
+.benchmark-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.benchmark-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
 .benchmark-form :deep(.el-input-number) {
@@ -3327,6 +3488,339 @@ html.dark .accent-card {
 @media (max-width: 760px) {
   .benchmark-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+</style>
+
+<style scoped>
+/* Ultralytics-inspired light topology */
+.overview-page .topology-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.overview-page .cpu-ring::before {
+  background: var(--panel);
+}
+
+.overview-page .cpu-ring {
+  box-shadow: none;
+}
+
+.overview-page .topology-panel .panel-head {
+  border-bottom: 1px solid var(--border);
+}
+
+.overview-page .topology-panel .panel-head h2 {
+  color: var(--text);
+  font-size: 17px;
+}
+
+.overview-page .topology-panel .panel-caption {
+  color: var(--text-muted);
+}
+
+.overview-page .topology-panel .tag-soft {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.overview-page .topology-panel .el-button {
+  border-color: var(--border);
+  background: var(--panel);
+  color: var(--text-secondary);
+}
+
+.overview-page .topology-stage {
+  background-color: var(--panel-soft);
+  background-image:
+    linear-gradient(rgba(15, 23, 42, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.045) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.overview-page .topology-hub {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.overview-page .hub-label {
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.overview-page .topology-hub strong {
+  color: var(--text);
+  font-size: 19px;
+}
+
+.overview-page .topology-hub small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.overview-page .hub-version {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.overview-page .topology-bus {
+  background: linear-gradient(90deg, transparent, #93a5ff 12%, #93a5ff 88%, transparent);
+}
+
+.overview-page .topology-node {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.overview-page .topology-node.online:hover {
+  border-color: var(--border-strong);
+  background: var(--panel);
+}
+
+.overview-page .topology-node::before {
+  background: linear-gradient(180deg, #93a5ff, transparent);
+}
+
+.overview-page .topology-node-glyph {
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.overview-page .topology-node-head strong {
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+}
+
+.overview-page .topology-node-head > div span {
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.overview-page .topology-status {
+  color: var(--success);
+  font-family: var(--font);
+  font-size: 11px;
+}
+
+.overview-page .topology-status.offline {
+  color: var(--text-muted);
+}
+
+.overview-page .topology-node-meter > div:first-child {
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.overview-page .topology-node-meter b {
+  color: var(--text-secondary);
+}
+
+.overview-page .topology-node-meter .meter {
+  background: var(--panel-soft);
+}
+
+.overview-page .topology-node-meter .meter span {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.overview-page .topology-tasks {
+  border-top: 1px solid var(--border);
+}
+
+.overview-page .topology-task {
+  border: 1px solid var(--accent-line);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.overview-page .topology-task span,
+.overview-page .topology-task b {
+  color: inherit;
+}
+
+.overview-page .topology-task i {
+  background: var(--accent);
+}
+
+.overview-page .topology-task-more,
+.overview-page .topology-idle {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.overview-page .topology-node-foot {
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.overview-page .topology-node-action {
+  color: var(--text-secondary);
+}
+
+.overview-page .node-policy {
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.overview-page .node-policy-legend i {
+  background: var(--accent);
+}
+
+.overview-page .node-policy-legend i.idle {
+  background: var(--border-strong);
+}
+
+.overview-page .side-stack .panel {
+  border-radius: var(--radius);
+}
+
+.distribution-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.distribution-expand:hover {
+  color: var(--accent);
+}
+
+.distribution-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+
+.distribution-range {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.distribution-select {
+  width: 148px;
+}
+
+.distribution-total {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.distribution-total strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.distribution-large {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 190px;
+  padding: 4px 0;
+}
+
+.distribution-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 42px 44px;
+  align-items: center;
+  gap: 12px;
+}
+
+.distribution-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.distribution-label i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.distribution-track {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--panel-soft);
+}
+
+.distribution-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.distribution-row > strong {
+  color: var(--text);
+  font-size: 16px;
+  text-align: right;
+}
+
+.distribution-percent {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.distribution-note {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+@media (min-width: 1001px) {
+  .overview-page .metric-deck {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .overview-page .metric-cpu,
+  .overview-page .metric-host {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .distribution-row {
+    grid-template-columns: 78px minmax(0, 1fr) 32px 38px;
+    gap: 8px;
+  }
+
+  .distribution-label {
+    font-size: 13px;
+  }
+
+  .distribution-total {
+    width: 100%;
   }
 }
 </style>

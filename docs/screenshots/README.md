@@ -3,19 +3,20 @@
 These screenshots are captured from the real running application (FastAPI + Ray +
 Redis + Vite) with Playwright-driven Microsoft Edge at a 1440×1000 viewport.
 
-The current set is **v2.4 Operations Ledger**: a flat dark navigation rail, paper
-workspace, the live cluster topology, quality-gated datasets and reproducible run
-manifests. The interface was checked at 375 / 768 / 1280 widths (no horizontal
-overflow) and against the `deepseek-frontend-design` self-check: 16px body copy,
-12px minimum UI labels, 2px visible focus, and reduced-motion fallbacks. Main
-text/background token pairs measure 5.18:1–16.82:1.
+The current set is **v2.5 Ultralytics-style workspace**: a light rail with task
+search, blue square mark, hairline cards, black primary actions, a light cluster
+topology, quality-gated datasets and reproducible run manifests. The interface was
+checked at 375 / 768 / 1280 widths (no horizontal overflow) and against the
+`deepseek-frontend-design` self-check: 16px body copy, 12px minimum UI labels,
+2px visible focus, and reduced-motion fallbacks. Main text/background token pairs
+measure 4.5:1–19.0:1.
 
 | File | Page / state |
 | --- | --- |
-| `overview.png` | Multi-node overview with two online nodes, CPU/queue/host cards and live topology |
-| `tasks.png` | Task list with status filters, pagination and run selection |
-| `submit.png` | YOLO CPU task form, dataset quality gate and live command preview |
-| `detail.png` | Succeeded task with run manifest and checkpoint |
+| `overview.png` | Light multi-node overview with a running 3-CPU showcase task |
+| `tasks.png` | Task list with running task, status filters, pagination and row selection |
+| `submit.png` | YOLO CPU task form, quality gate, compute threads/cache and live preview |
+| `detail.png` | Succeeded task with logs, metrics, run manifest and checkpoint |
 | `queue.png` | Pending task detail while both simulated nodes are occupied |
 | `dark.png` | Dark mode cluster overview |
 | `pipelines.png` | Serial preprocess → train → evaluate pipelines, both completed |
@@ -24,9 +25,13 @@ text/background token pairs measure 5.18:1–16.82:1.
 | `webhooks.png` | Signed webhook endpoint, delivery outbox and HMAC header hint |
 | `topology.png` | Multi-node topology editor |
 | `sidebar-collapsed.png` | Desktop navigation rail collapsed to icons |
-| `quality-report.png` | Dataset quality report with blocking/warning issues |
+| `quality-report.png` | Dataset quality report with warning issues |
 | `benchmark.png` | CPU benchmark result and selected thread/worker profile |
 | `compare.png` | Two-run comparison with dataset compatibility warning |
+| `distribution.png` | Expanded task status distribution with 5m–180d range selector |
+| `rerun.png` | Finished task with one-click rerun action |
+| `resume.png` | Checkpoint selection and full/weights resume dialog |
+| `resume-no-checkpoint.png` | Blocked resume when the task stopped before its first epoch |
 
 The screenshots are illustrative; the actual demo can be run locally with:
 

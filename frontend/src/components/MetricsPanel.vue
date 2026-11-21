@@ -66,10 +66,10 @@ function formatMetric(value: number | null): string {
 const lossSeries = computed<ChartSeries[]>(() => {
   const metricSeries = props.metrics?.series ?? []
   const preferred = [
-    ['train/box_loss', '#0b7a53', true],
-    ['train/cls_loss', '#a5542f', true],
-    ['train/dfl_loss', '#9a6a1e', false],
-    ['val/box_loss', '#4f6f5e', false],
+    ['train/box_loss', '#0b23a9', true],
+    ['train/cls_loss', '#0ea5e9', true],
+    ['train/dfl_loss', '#f59e0b', false],
+    ['val/box_loss', '#64748b', false],
   ] as const
   const values: Array<ChartSeries | null> = preferred.map(([name, color, area]) => {
     const series = metricSeries.find((item) => item.name === name)
@@ -87,10 +87,10 @@ const lossSeries = computed<ChartSeries[]>(() => {
 const precisionSeries = computed<ChartSeries[]>(() => {
   const metricSeries = props.metrics?.series ?? []
   const preferred = [
-    ['metrics/mAP50(B)', 'mAP50', '#0b7a53', true],
-    ['metrics/mAP50-95(B)', 'mAP50-95', '#a5542f', true],
-    ['metrics/precision(B)', 'precision', '#9a6a1e', false],
-    ['metrics/recall(B)', 'recall', '#4f6f5e', false],
+    ['metrics/mAP50(B)', 'mAP50', '#0b23a9', true],
+    ['metrics/mAP50-95(B)', 'mAP50-95', '#0ea5e9', true],
+    ['metrics/precision(B)', 'precision', '#f59e0b', false],
+    ['metrics/recall(B)', 'recall', '#64748b', false],
   ] as const
   const values: Array<ChartSeries | null> = preferred.map(([key, label, color, area]) => {
     const series = metricSeries.find((item) => item.name === key)
@@ -115,7 +115,7 @@ const resourceSeries = computed<ChartSeries[]>(() => {
   return [
     {
       name: 'CPU',
-      color: '#0b7a53',
+      color: '#0b23a9',
       area: true,
       points: cpuPoints,
     },
@@ -167,11 +167,11 @@ const hasMetricData = computed(() => (props.metrics?.series.length ?? 0) > 0)
               v-for="tab in tabs"
               :key="tab.key"
               type="button"
+              :title="tab.hint"
               :class="{ active: activeTab === tab.key }"
               @click="activeTab = tab.key"
             >
               {{ tab.label }}
-              <small>{{ tab.hint }}</small>
             </button>
           </div>
         </div>
@@ -525,5 +525,42 @@ const hasMetricData = computed(() => (props.metrics?.series.length ?? 0) > 0)
   .chart-tabs button small {
     display: none;
   }
+}
+
+/* Keep the three chart selectors on one row even in the narrow task sidebar. */
+.chart-head > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.chart-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  width: 100%;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  flex-wrap: nowrap;
+}
+
+.chart-tabs button {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  min-width: 0;
+  padding: 6px 4px;
+  border-color: transparent;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.chart-tabs button.active {
+  border-color: var(--border);
+  background: var(--panel);
+  color: var(--accent);
 }
 </style>

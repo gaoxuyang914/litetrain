@@ -7,8 +7,10 @@ import type {
   PreviewResponse,
   Task,
   TaskCheckpoint,
+  TaskCheckpointList,
   TaskCompareResponse,
   TaskCreatePayload,
+  TaskDistribution,
   TaskEvent,
   TaskListResponse,
   TaskManifest,
@@ -77,6 +79,13 @@ export const api = {
     return data
   },
 
+  async getTaskDistribution(window: string): Promise<TaskDistribution> {
+    const { data } = await http.get<TaskDistribution>('/cluster/task-distribution', {
+      params: { window },
+    })
+    return data
+  },
+
   async listTasks(query: TaskQuery = {}): Promise<TaskListResponse> {
     const { data } = await http.get<TaskListResponse>('/tasks', { params: query })
     return data
@@ -129,15 +138,25 @@ export const api = {
     return data
   },
 
-  async getTaskCheckpoints(taskId: string): Promise<TaskCheckpoint[]> {
-    const { data } = await http.get<{ items: TaskCheckpoint[]; total: number }>(
-      `/tasks/${taskId}/checkpoints`,
-    )
-    return data.items
+  async getTaskCheckpoints(taskId: string): Promise<TaskCheckpointList> {
+    const { data } = await http.get<TaskCheckpointList>(`/tasks/${taskId}/checkpoints`)
+    return data
   },
 
-  async resumeTask(taskId: string, mode: 'full' | 'weights'): Promise<Task> {
-    const { data } = await http.post<Task>(`/tasks/${taskId}/resume`, { mode })
+  async resumeTask(
+    taskId: string,
+    mode: 'full' | 'weights',
+    checkpointEpoch?: number | null,
+  ): Promise<Task> {
+    const { data } = await http.post<Task>(`/tasks/${taskId}/resume`, {
+      mode,
+      checkpoint_epoch: checkpointEpoch ?? null,
+    })
+    return data
+  },
+
+  async rerunTask(taskId: string): Promise<Task> {
+    const { data } = await http.post<Task>(`/tasks/${taskId}/rerun`)
     return data
   },
 

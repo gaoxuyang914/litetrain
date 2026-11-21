@@ -5,7 +5,6 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage } from 'element-plus'
 import {
   ArrowRight,
-  CircleCheck,
   CopyDocument,
   Cpu,
   InfoFilled,
@@ -49,7 +48,7 @@ const form = reactive<TaskCreatePayload>({
   save_period: 5,
   priority: 50,
   max_runtime_seconds: 1800,
-  max_retries: 0,
+  max_retries: 3,
   notes: '',
 })
 
@@ -295,10 +294,6 @@ onBeforeUnmount(() => {
       <div class="page-heading">
         <span class="eyebrow">新建训练</span>
         <h1 class="page-title">提交训练任务</h1>
-        <p class="page-subtitle">
-          选择 coco128 样本与 YOLOv8n 权重，提交后在 CPU 上训练。平台会先计算资源，再通过
-          {{ backendLabel }} 启动隔离的训练进程。
-        </p>
       </div>
       <div class="page-actions">
         <el-button :icon="Timer" @click="applyPreset('quick')">快速试跑 · 1 轮</el-button>
@@ -633,17 +628,6 @@ onBeforeUnmount(() => {
           <p class="submit-hint">
             提交即进入调度队列。可在任务列表实时跟进状态与日志。
           </p>
-        </section>
-
-        <section class="panel tips-card">
-          <div class="tips-icon"><el-icon><CircleCheck /></el-icon></div>
-          <div>
-            <h3>推荐演示路径</h3>
-            <p>
-              第一次使用建议「快速试跑 · 1 轮」：coco128 的 128 张图在 96px 下约 20 秒完成，
-              足以看到完整的状态流转和日志输出。
-            </p>
-          </div>
         </section>
       </aside>
     </div>

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import secrets
 import uuid
 from datetime import datetime
@@ -51,13 +52,19 @@ from app.training.config import (
     TrainingAssetError,
     build_display_command,
     build_equivalent_yolo_command,
-    list_datasets,
     list_models,
     resolve_dataset_path,
     resolve_model_path,
 )
 
 logger = logging.getLogger(__name__)
+
+_TASK_SUFFIX = re.compile(r"(?:\s*·\s*(?:rerun|resume))+$", re.IGNORECASE)
+
+
+def _base_task_name(name: str | None) -> str:
+    cleaned = _TASK_SUFFIX.sub("", name or "").strip()
+    return cleaned or (name or "task")
 
 
 class TaskValidationError(ValueError):
@@ -148,7 +155,9 @@ class TaskService:
         elif self.datasets is not None:
             record = self.datasets.find_by_yaml(payload.dataset)
         if record is None:
-            return None
+            raise TaskValidationError(
+                "dataset is not registered; import it and wait for the quality audit", 422
+            )
         status = record.quality_status
         if status in {"pending", "auditing"}:
             raise TaskValidationError("dataset quality audit is still running", 409)
@@ -404,28 +413,105 @@ class TaskService:
                         created_at=row.created_at,
                     )
                 )
-            return TaskCheckpointListResponse(items=items, total=len(items))
-
-    def resume(self, task_id: str, mode: str = "full") -> TaskOut:
-        original = self.get_model(task_id)
-        if original.status not in {TaskStatus.FAILED.value, TaskStatus.CANCELLED.value}:
-            raise TaskValidationError("only failed or cancelled tasks can be resumed", 409)
-        with self.db.session() as session:
-            checkpoint = session.scalar(
-                select(TaskCheckpoint)
-                .where(TaskCheckpoint.task_id == task_id)
-                .order_by(TaskCheckpoint.epoch.desc())
+            return TaskCheckpointListResponse(
+                items=items,
+                total=len(items),
+                fallback_available=(
+                    Path(task.result_path).parent / "weights" / "last.pt"
+                ).is_file(),
             )
-            fallback = Path(original.result_path).parent / "weights" / "last.pt"
-        if checkpoint is None and not fallback.is_file():
-            raise TaskValidationError("no checkpoint is available for this task", 409)
+
+    def rerun(self, task_id: str) -> TaskOut:
+        original = self.get_model(task_id)
+        if original.status not in {
+            TaskStatus.SUCCEEDED.value,
+            TaskStatus.FAILED.value,
+            TaskStatus.CANCELLED.value,
+        }:
+            raise TaskValidationError("only finished tasks can be rerun", 409)
         try:
             config = json.loads(original.config_json or "{}")
         except json.JSONDecodeError:
             config = {}
         dataset = config.get("dataset") or original.dataset
         payload = TaskCreate(
-            name=f"{original.name} · resume",
+            name=f"{_base_task_name(original.name)} · rerun",
+            model=original.model,
+            dataset=dataset,
+            dataset_id=original.dataset_id,
+            quality_ack=True,
+            epochs=original.epochs,
+            imgsz=original.imgsz,
+            batch_size=original.batch_size,
+            workers=original.workers,
+            cpu_cores=original.cpu_cores,
+            compute_threads=original.compute_threads,
+            cache_mode=original.cache_mode,
+            seed=original.seed,
+            patience=original.patience,
+            save_period=original.save_period,
+            priority=original.priority,
+            max_runtime_seconds=original.max_runtime_seconds,
+            max_retries=original.max_retries,
+            notes=f"rerun of {task_id}",
+        )
+        created = self.create(payload)
+        with self.db.session() as session:
+            task = session.get(Task, created.id)
+            if task is None:
+                raise TaskNotFoundError(created.id)
+            try:
+                stored = json.loads(task.config_json or "{}")
+            except json.JSONDecodeError:
+                stored = {}
+            stored["rerun_of"] = task_id
+            task.config_json = json.dumps(stored, ensure_ascii=False)
+            add_event(session, task.id, "rerun", f"Rerun of {task_id}")
+            session.flush()
+        return self.get(created.id)
+
+    def resume(
+        self,
+        task_id: str,
+        mode: str = "full",
+        checkpoint_epoch: int | None = None,
+    ) -> TaskOut:
+        original = self.get_model(task_id)
+        if original.status not in {TaskStatus.FAILED.value, TaskStatus.CANCELLED.value}:
+            raise TaskValidationError("only failed or cancelled tasks can be resumed", 409)
+        with self.db.session() as session:
+            query = select(TaskCheckpoint).where(TaskCheckpoint.task_id == task_id)
+            if checkpoint_epoch is not None:
+                query = query.where(TaskCheckpoint.epoch == checkpoint_epoch)
+            checkpoint = session.scalar(query.order_by(TaskCheckpoint.epoch.desc()))
+            fallback = Path(original.result_path).parent / "weights" / "last.pt"
+        if checkpoint_epoch is not None and checkpoint is None:
+            raise TaskValidationError(f"checkpoint for epoch {checkpoint_epoch} was not found", 404)
+        checkpoint_path = self.settings.data_dir / checkpoint.path if checkpoint is not None else fallback
+        if not checkpoint_path.is_file():
+            raise TaskValidationError(
+                "no recoverable checkpoint: training stopped before the first epoch completed; use rerun instead",
+                409,
+            )
+        if original.dataset_id and original.dataset_sha256 and self.datasets is not None:
+            with self.db.session() as session:
+                record = session.get(DatasetRecord, original.dataset_id)
+            if (
+                record is not None
+                and record.content_sha256
+                and record.content_sha256 != original.dataset_sha256
+            ):
+                raise TaskValidationError(
+                    "dataset content changed since this run; rerun instead of resuming", 409
+                )
+        try:
+            config = json.loads(original.config_json or "{}")
+        except json.JSONDecodeError:
+            config = {}
+        dataset = config.get("dataset") or original.dataset
+        epoch_label = checkpoint.epoch if checkpoint is not None else 0
+        payload = TaskCreate(
+            name=f"{_base_task_name(original.name)} · resume",
             model=original.model,
             dataset=Path(dataset).name,
             dataset_id=original.dataset_id,
@@ -443,7 +529,7 @@ class TaskService:
             priority=original.priority,
             max_runtime_seconds=original.max_runtime_seconds,
             max_retries=original.max_retries,
-            notes=f"resume from {task_id} ({mode})",
+            notes=f"resume from {task_id} ({mode}, epoch {epoch_label})",
         )
         created = self.create(payload)
         with self.db.session() as session:
@@ -452,19 +538,20 @@ class TaskService:
                 raise TaskNotFoundError(created.id)
             task.resume_from_task_id = task_id
             task.resume_mode = mode
-            task.checkpoint_epoch = checkpoint.epoch if checkpoint is not None else 0
+            task.checkpoint_epoch = epoch_label
             try:
                 stored = json.loads(task.config_json or "{}")
             except json.JSONDecodeError:
                 stored = {}
             stored["resume_from_task_id"] = task_id
             stored["resume_mode"] = mode
+            stored["checkpoint_epoch"] = epoch_label
             task.config_json = json.dumps(stored, ensure_ascii=False)
             add_event(
                 session,
                 task.id,
                 "resumed",
-                f"Resume from {task_id} ({mode}) at checkpoint {task.checkpoint_epoch}",
+                f"Resume from {task_id} ({mode}) at checkpoint {epoch_label}",
             )
             session.flush()
         return self.get(created.id)
@@ -605,17 +692,16 @@ class TaskService:
                 )
                 or 0
             )
-            deleted_yamls = {
-                Path(record.yaml_path).name
-                for record in session.scalars(
-                    select(DatasetRecord).where(DatasetRecord.status == "deleted")
-                ).all()
-            }
         max_cpu = max(1, min(self.settings.user_cpu_quota, self.settings.total_cpus, max_node_cpus))
         default_cpu = min(self.settings.default_cpu_cores, max_cpu)
+        managed_datasets = []
+        if self.datasets is not None:
+            for item in self.datasets.list():
+                if (self.settings.datasets_dir / item.yaml_path).is_file():
+                    managed_datasets.append(Path(item.yaml_path).name)
         return TaskOptions(
             models=list_models(self.settings),
-            datasets=[item for item in list_datasets(self.settings) if item not in deleted_yamls],
+            datasets=managed_datasets,
             total_cpus=self.settings.total_cpus,
             user_cpu_quota=self.settings.user_cpu_quota,
             execution_backend=execution_backend,

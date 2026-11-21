@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   CircleClose,
   CopyDocument,
   Document,
   Plus,
   Refresh,
+  RefreshRight,
   Search,
   View,
 } from '@element-plus/icons-vue'
@@ -17,7 +18,6 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import { useNotifications } from '@/composables/useNotifications'
 import type { Task, TaskCompareResponse, TaskListResponse, TaskStatus } from '@/types/task'
 import {
-  formatDate,
   formatDuration,
   formatPercent,
   isTerminal,
@@ -28,6 +28,7 @@ import {
 } from '@/utils/format'
 
 const router = useRouter()
+const route = useRoute()
 const { notify } = useNotifications()
 
 const response = ref<TaskListResponse | null>(null)
@@ -43,6 +44,8 @@ const searchInput = ref('')
 const appliedSearch = ref('')
 const cancellingId = ref<string | null>(null)
 const selectedIds = ref<string[]>([])
+const batchRerunning = ref(false)
+const batchCancelling = ref(false)
 const compareOpen = ref(false)
 const comparing = ref(false)
 const compareData = ref<TaskCompareResponse | null>(null)
@@ -63,14 +66,96 @@ const hasActiveTasks = computed(() =>
   tasks.value.some((task) => !isTerminal(task.status)),
 )
 
+const pageIds = computed(() => tasks.value.map((task) => task.id))
+const allPageSelected = computed(
+  () => pageIds.value.length > 0 && pageIds.value.every((id) => selectedIds.value.includes(id)),
+)
+const somePageSelected = computed(() => pageIds.value.some((id) => selectedIds.value.includes(id)))
+const selectedTasks = computed(() =>
+  tasks.value.filter((task) => selectedIds.value.includes(task.id)),
+)
+const canCompare = computed(
+  () => selectedIds.value.length >= 2 && selectedIds.value.length <= 4,
+)
+
 function toggleSelected(taskId: string) {
   const index = selectedIds.value.indexOf(taskId)
   if (index >= 0) selectedIds.value.splice(index, 1)
-  else if (selectedIds.value.length < 4) selectedIds.value.push(taskId)
+  else if (selectedIds.value.length < pageSize.value) selectedIds.value.push(taskId)
+}
+
+function toggleSelectAll(checked: boolean | string | number) {
+  if (!Boolean(checked)) {
+    selectedIds.value = selectedIds.value.filter((id) => !pageIds.value.includes(id))
+    return
+  }
+  selectedIds.value = Array.from(new Set([...selectedIds.value, ...pageIds.value]))
+}
+
+async function batchRerun() {
+  const candidates = selectedTasks.value.filter((task) => isTerminal(task.status))
+  if (!candidates.length) {
+    ElMessage.warning('选中的任务里没有可重跑的已结束任务')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将按相同配置重跑 ${candidates.length} 个已结束任务，是否继续？`,
+      '批量重跑',
+      { confirmButtonText: '重跑', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  batchRerunning.value = true
+  try {
+    const results = await Promise.allSettled(candidates.map((task) => api.rerunTask(task.id)))
+    const ok = results.filter((item) => item.status === 'fulfilled').length
+    const failed = results.length - ok
+    selectedIds.value = []
+    if (page.value !== 1) {
+      page.value = 1
+    } else {
+      await fetchTasks()
+    }
+    if (failed) ElMessage.warning(`已创建 ${ok} 个重跑任务，${failed} 个失败`)
+    else ElMessage.success(`已创建 ${ok} 个重跑任务`)
+  } finally {
+    batchRerunning.value = false
+  }
+}
+
+async function batchCancel() {
+  const candidates = selectedTasks.value.filter((task) => !isTerminal(task.status))
+  if (!candidates.length) {
+    ElMessage.warning('选中的任务里没有排队中或运行中的任务')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将取消 ${candidates.length} 个排队中或运行中的任务，是否继续？`,
+      '批量取消',
+      { confirmButtonText: '取消任务', cancelButtonText: '返回', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  batchCancelling.value = true
+  try {
+    const results = await Promise.allSettled(candidates.map((task) => api.cancelTask(task.id)))
+    const ok = results.filter((item) => item.status === 'fulfilled').length
+    const failed = results.length - ok
+    selectedIds.value = []
+    await fetchTasks()
+    if (failed) ElMessage.warning(`已取消 ${ok} 个任务，${failed} 个失败`)
+    else ElMessage.success(`已取消 ${ok} 个任务`)
+  } finally {
+    batchCancelling.value = false
+  }
 }
 
 async function openCompare() {
-  if (selectedIds.value.length < 2) return
+  if (!canCompare.value) return
   comparing.value = true
   compareOpen.value = true
   try {
@@ -108,6 +193,8 @@ async function fetchTasks(silent = false) {
       lastStatuses.set(task.id, task.status)
     }
     response.value = data
+    const visibleIds = new Set(data.items.map((task) => task.id))
+    selectedIds.value = selectedIds.value.filter((id) => visibleIds.has(id))
     error.value = null
     if (data.pages > 0 && page.value > data.pages) {
       page.value = data.pages
@@ -124,12 +211,14 @@ function selectStatus(value: 'all' | TaskStatus) {
   if (statusFilter.value === value) return
   statusFilter.value = value
   page.value = 1
+  selectedIds.value = []
   fetchTasks()
 }
 
 function applySearch() {
   appliedSearch.value = searchInput.value.trim()
   page.value = 1
+  selectedIds.value = []
   fetchTasks()
 }
 
@@ -137,6 +226,7 @@ function clearSearch() {
   searchInput.value = ''
   appliedSearch.value = ''
   page.value = 1
+  selectedIds.value = []
   fetchTasks()
 }
 
@@ -196,14 +286,35 @@ function priorityTone(priority: number): string {
   return 'low'
 }
 
-watch([page, pageSize], () => fetchTasks())
+watch([page, pageSize], () => {
+  selectedIds.value = []
+  fetchTasks()
+})
 
 onMounted(async () => {
+  const query = typeof route.query.q === 'string' ? route.query.q : ''
+  if (query) {
+    searchInput.value = query
+    appliedSearch.value = query
+  }
   await fetchTasks()
   timer = window.setInterval(() => {
     if (autoRefresh.value && !document.hidden) fetchTasks(true)
   }, 2500)
 })
+
+watch(
+  () => route.query.q,
+  (value) => {
+    const query = typeof value === 'string' ? value : ''
+    if (!query || query === appliedSearch.value) return
+    searchInput.value = query
+    appliedSearch.value = query
+    page.value = 1
+    selectedIds.value = []
+    fetchTasks()
+  },
+)
 
 onBeforeUnmount(() => {
   if (timer) window.clearInterval(timer)
@@ -216,9 +327,6 @@ onBeforeUnmount(() => {
       <div class="page-heading">
         <span class="eyebrow">训练任务</span>
         <h1 class="page-title">任务列表</h1>
-        <p class="page-subtitle">
-          所有训练任务按提交时间倒序排列。状态筛选、任务 ID 搜索和分页都直接由后端 SQLite 查询支持。
-        </p>
       </div>
       <div class="page-actions">
         <div class="auto-refresh">
@@ -234,7 +342,23 @@ onBeforeUnmount(() => {
           @click="fetchTasks()"
         />
         <el-button
-          v-if="selectedIds.length >= 2"
+          :icon="RefreshRight"
+          :loading="batchRerunning"
+          :disabled="selectedIds.length === 0"
+          @click="batchRerun"
+        >
+          批量重跑
+        </el-button>
+        <el-button
+          :icon="CircleClose"
+          :loading="batchCancelling"
+          :disabled="selectedIds.length === 0"
+          @click="batchCancel"
+        >
+          批量取消
+        </el-button>
+        <el-button
+          v-if="canCompare"
           :loading="comparing"
           @click="openCompare"
         >
@@ -273,14 +397,13 @@ onBeforeUnmount(() => {
           @keyup.enter="applySearch"
           @clear="clearSearch"
         />
-        <el-button type="primary" plain @click="applySearch">搜索</el-button>
+        <el-button type="primary" @click="applySearch">搜索</el-button>
       </div>
     </section>
 
     <section class="panel table-panel">
       <div class="table-meta">
         <div>
-          <span class="soft-label">任务索引</span>
           <p>
             <strong>{{ response?.total ?? 0 }}</strong> 个任务
             <span v-if="appliedSearch" class="filter-note">
@@ -291,7 +414,6 @@ onBeforeUnmount(() => {
             </span>
           </p>
         </div>
-        <span class="table-hint">点击任务行查看详情</span>
       </div>
 
       <el-skeleton v-if="loading" :rows="7" animated class="table-skeleton" />
@@ -303,7 +425,16 @@ onBeforeUnmount(() => {
           class="task-table"
           @row-click="openDetail"
         >
-          <el-table-column width="44" align="center">
+          <el-table-column width="48" align="center">
+            <template #header>
+              <el-checkbox
+                :model-value="allPageSelected"
+                :indeterminate="somePageSelected && !allPageSelected"
+                :disabled="tasks.length === 0"
+                title="全选当前页"
+                @change="toggleSelectAll"
+              />
+            </template>
             <template #default="{ row }">
               <el-checkbox
                 :model-value="selectedIds.includes(row.id)"
@@ -312,31 +443,33 @@ onBeforeUnmount(() => {
               />
             </template>
           </el-table-column>
-          <el-table-column label="任务" min-width="230">
+          <el-table-column label="任务" min-width="260">
             <template #default="{ row }">
               <div class="task-cell">
-                <span class="priority-rail" :class="priorityTone(row.priority)"></span>
                 <div class="task-identity">
                   <div class="task-title-line">
                     <strong :title="row.name">{{ row.name }}</strong>
                     <span v-if="row.retry_count > 0" class="retry-chip">R{{ row.retry_count }}</span>
                   </div>
-                  <button class="task-id" type="button" @click.stop="copyId(row.id)">
-                    <span class="mono">{{ row.id }}</span>
-                    <el-icon><CopyDocument /></el-icon>
-                  </button>
+                  <div class="task-meta-line">
+                    <button class="task-id" type="button" @click.stop="copyId(row.id)">
+                      <span class="mono">{{ row.id }}</span>
+                      <el-icon><CopyDocument /></el-icon>
+                    </button>
+                    <span class="task-submitted">· {{ timeAgo(row.submitted_at) }} 提交</span>
+                  </div>
                 </div>
               </div>
             </template>
           </el-table-column>
 
-          <el-table-column label="状态" width="104">
+          <el-table-column label="状态" width="112">
             <template #default="{ row }">
               <StatusBadge :status="row.status" />
             </template>
           </el-table-column>
 
-          <el-table-column label="训练配置" min-width="145">
+          <el-table-column label="训练配置" min-width="180">
             <template #default="{ row }">
               <div class="config-cell">
                 <span class="mono">{{ row.epochs }} 轮 · {{ row.imgsz }} px · 批 {{ row.batch_size }}</span>
@@ -345,15 +478,12 @@ onBeforeUnmount(() => {
             </template>
           </el-table-column>
 
-          <el-table-column label="CPU" width="60" align="center">
+          <el-table-column label="资源" width="136" align="center">
             <template #default="{ row }">
-              <span class="cpu-chip">{{ row.cpu_cores }}</span>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="优先级" width="76" align="center">
-            <template #default="{ row }">
-              <span class="priority-chip" :class="priorityTone(row.priority)">{{ row.priority }}</span>
+              <div class="resource-cell">
+                <span class="cpu-chip">{{ row.cpu_cores }}<small>核</small></span>
+                <span class="priority-chip" :class="priorityTone(row.priority)">P{{ row.priority }}</span>
+              </div>
             </template>
           </el-table-column>
 
@@ -376,15 +506,7 @@ onBeforeUnmount(() => {
             </template>
           </el-table-column>
 
-          <el-table-column label="提交时间" min-width="104">
-            <template #default="{ row }">
-              <el-tooltip :content="formatDate(row.submitted_at)" placement="top">
-                <span class="submitted-cell">{{ timeAgo(row.submitted_at) }}</span>
-              </el-tooltip>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="操作" width="152" align="right" fixed="right">
+          <el-table-column label="操作" width="112" align="right">
             <template #default="{ row }">
               <div class="action-group" @click.stop>
                 <el-tooltip content="查看详情" placement="top">
@@ -407,7 +529,6 @@ onBeforeUnmount(() => {
                     <el-icon><CircleClose /></el-icon>
                   </button>
                 </el-tooltip>
-                <span v-else class="terminal-mark mono">{{ row.exit_code == null ? 'end' : `exit ${row.exit_code}` }}</span>
               </div>
             </template>
           </el-table-column>
@@ -433,7 +554,6 @@ onBeforeUnmount(() => {
                 :model-value="selectedIds.includes(row.id)"
                 @change="toggleSelected(row.id)"
               />
-              <span class="priority-rail" :class="priorityTone(row.priority)"></span>
               <div class="task-mobile-name">
                 <strong>{{ row.name }}</strong>
                 <span class="mono">{{ row.id }}</span>
@@ -618,7 +738,7 @@ onBeforeUnmount(() => {
 }
 
 .chip-dot.succeeded {
-  background: #16865f;
+  background: var(--success);
 }
 
 .chip-dot.failed {
@@ -791,6 +911,19 @@ onBeforeUnmount(() => {
 
 .task-id:hover .el-icon {
   opacity: 1;
+}
+
+.task-meta-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.task-submitted {
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .config-cell {
@@ -1290,5 +1423,228 @@ onBeforeUnmount(() => {
 
 .compare-deltas strong.negative {
   color: var(--red);
+}
+</style>
+
+<style scoped>
+/* Keep filters and search on one line on desktop. */
+.filter-panel {
+  flex-wrap: nowrap;
+  gap: 12px;
+}
+
+.status-chips {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.status-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.status-chip {
+  flex: none;
+  min-height: 30px;
+  gap: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.search-wrap {
+  flex: 0 1 340px;
+  min-width: 260px;
+}
+
+.search-input {
+  width: auto;
+  min-width: 0;
+  flex: 1;
+}
+
+@media (max-width: 900px) {
+  .filter-panel {
+    flex-wrap: wrap;
+  }
+
+  .status-chips {
+    width: 100%;
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .search-wrap {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1200px) {
+  .status-chip {
+    padding: 4px 6px;
+    font-size: 11px;
+  }
+
+  .chip-count {
+    font-size: 11px;
+  }
+
+  .search-wrap {
+    flex-basis: 290px;
+    min-width: 240px;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1100px) {
+  .chip-count {
+    display: none;
+  }
+}
+</style>
+
+
+<style scoped>
+/* Task table typography and spacing */
+.task-table :deep(.el-table__header-wrapper th.el-table__cell) {
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-soft);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.task-table :deep(.el-table__body td.el-table__cell) {
+  padding: 15px 0;
+}
+
+.task-table :deep(.el-table__body tr:hover > td.el-table__cell) {
+  background: var(--panel-soft);
+}
+
+.task-table :deep(.el-table__cell .cell) {
+  padding: 0 14px;
+}
+
+.task-table :deep(.el-table__inner-wrapper::before) {
+  display: none;
+}
+
+.task-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.task-identity {
+  gap: 5px;
+}
+
+.task-title-line strong {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.45;
+}
+
+.task-meta-line {
+  gap: 5px;
+}
+
+.task-id,
+.task-id .mono {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.task-submitted {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.config-cell {
+  gap: 4px;
+}
+
+.config-cell .mono {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.config-model {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.resource-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.cpu-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  min-width: 0;
+  height: 23px;
+  padding: 0 7px;
+  border-color: var(--border);
+  border-radius: 6px;
+  background: var(--panel-soft);
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.cpu-chip small {
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.priority-chip {
+  min-width: 39px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  font-size: 10px;
+  text-align: center;
+}
+
+.progress-cell {
+  min-width: 0;
+}
+
+.progress-value,
+.duration-value {
+  font-size: 12px;
+}
+
+.progress-sub,
+.pending-cell {
+  font-size: 11px;
+}
+
+.mini-meter {
+  height: 5px;
+  margin-top: 6px;
+}
+
+.action-group {
+  gap: 3px;
+}
+
+.row-action {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+}
+
+.row-action:hover {
+  background: var(--accent-soft);
 }
 </style>

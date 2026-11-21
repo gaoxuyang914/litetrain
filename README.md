@@ -6,7 +6,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 > 目标不是做一个“大而全”的 MLOps 平台，而是把训练任务的生命周期、资源回收、心跳、日志、指标，以及 P2 要求的流水线、资产和 Webhook 这些**真正容易出错的地方**做完整、可演示、可测试。
 
-**当前状态**：P0 / P1 全部完成；P2 四项高阶能力（多节点模拟、预处理 → 训练 → 评估流水线、数据集与模型产物、状态 Webhook）也已编码实现，并通过真实 Ray 训练、真实 HTTP 回调完成验收。
+**当前状态**：P0 / P1 全部完成；P2 四项高阶能力（多节点模拟、预处理 → 训练 → 评估流水线、数据集与模型产物、状态 Webhook）也已编码实现，并通过真实 Ray 训练、真实 HTTP 回调完成验收。v2.5 将界面调整为零依赖的 **Ultralytics Platform 风格浅色工作区**：白色侧栏、蓝色品牌、细边框卡片、黑色主按钮和任务搜索。
 
 > CPU 优化的落地路线、现状差距、里程碑和验收指标见 [docs/CPU_OPTIMIZATION_LANDING_PLAN.md](docs/CPU_OPTIMIZATION_LANDING_PLAN.md)。
 
@@ -85,6 +85,16 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 > 本轮迁移使用 SQLite 可重复执行的加列迁移；旧的 `platform.db` 升级前已备份。P1/P2 的早停、错误分析、ONNX 和量化仍按路线图推进。
 
+### v2.5 界面与运行观测
+
+- 工作区改为 Ultralytics Platform 风格的浅色侧栏、蓝色品牌、细边框卡片和黑色主操作。
+- 状态分布支持弹窗放大，并按 **5 分钟 / 15 分钟 / 30 分钟 / 1 小时 / 3 小时 / 6 小时 / 12 小时 / 24 小时 / 7 天 / 30 天 / 90 天 / 近半年 / 全部时间** 查询。
+- 统计口径为任务提交时间，数据由 `/api/v1/cluster/task-distribution` 直接从 SQLite 聚合。
+- 提交页只列出已登记数据集；未登记 YAML 即使存在于数据目录，也会被 **422** 拒绝，避免绕过质量检查。
+- 任务详情可一键跳转到「模型产物」并按任务过滤；产物页支持按产物名、任务 ID、SHA-256 搜索和 kind 筛选。
+- 已结束任务支持一键 **重跑**：复制原任务的模型、数据、超参数、CPU 配额和优先级，创建新任务并保留来源；重跑/恢复名称只保留一层 `· rerun` / `· resume` 后缀，不继续叠加。
+- 失败/取消任务支持 **从断点继续**：选择具体 checkpoint，可选完整恢复（优化器、学习率、epoch 进度）或仅加载权重；数据集哈希变化会拒绝恢复。完整恢复结束后会把 `best.pt / last.pt / results.csv / args.yaml` 同步回新任务目录，保证产物页可见。
+
 ### 额外实现
 
 - **SSE 实时日志**：`GET /api/v1/tasks/{id}/logs/stream?offset=...`。
@@ -128,9 +138,9 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 ![Webhook](docs/screenshots/webhooks.png)
 
-更多截图：任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)。
+更多截图：任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
 
-> 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.4 Operations Ledger**：纸面工作区、深色导航栏、实时集群拓扑、数据质量准入和运行清单；字号、对比度、焦点和 reduced-motion 均按 `deepseek-frontend-design` 技能自检。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
+> 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.5 Ultralytics-style workspace**：白色侧栏与任务搜索、蓝色品牌、细边框浅色卡片、黑色主按钮、浅色集群拓扑、数据质量准入和运行清单；字号、对比度、焦点和 reduced-motion 均按 `deepseek-frontend-design` 技能自检。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
 
 ---
 

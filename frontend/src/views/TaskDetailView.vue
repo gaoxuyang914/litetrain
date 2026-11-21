@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
+  Box,
   CircleCheck,
   CircleClose,
   Clock,
@@ -13,6 +14,7 @@ import {
   Loading,
   Odometer,
   Refresh,
+  RefreshRight,
   Timer,
   WarningFilled,
 } from '@element-plus/icons-vue'
@@ -23,7 +25,14 @@ import LogTerminal from '@/components/LogTerminal.vue'
 import MetricsPanel from '@/components/MetricsPanel.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useNotifications } from '@/composables/useNotifications'
-import type { Task, TaskCheckpoint, TaskEvent, TaskManifest, TaskMetrics } from '@/types/task'
+import type {
+  Task,
+  TaskCheckpoint,
+  TaskCheckpointList,
+  TaskEvent,
+  TaskManifest,
+  TaskMetrics,
+} from '@/types/task'
 import {
   copyText,
   formatBytes,
@@ -44,10 +53,16 @@ const metrics = ref<TaskMetrics | null>(null)
 const events = ref<TaskEvent[]>([])
 const manifest = ref<TaskManifest | null>(null)
 const checkpoints = ref<TaskCheckpoint[]>([])
+const checkpointFallback = ref(false)
 const loading = ref(true)
 const refreshing = ref(false)
 const error = ref<string | null>(null)
 const cancelling = ref(false)
+const rerunning = ref(false)
+const resumeOpen = ref(false)
+const resumeMode = ref<'full' | 'weights'>('full')
+const resumeEpoch = ref<number | null>(null)
+const resuming = ref(false)
 const metricsError = ref<string | null>(null)
 const logsSection = ref<HTMLElement | null>(null)
 let pollTimer: number | undefined
@@ -90,14 +105,69 @@ const executorLabel = computed(() => {
   return value.toLowerCase() === 'ray' ? 'Ray' : value
 })
 
-async function resumeTask(mode: 'full' | 'weights' = 'full') {
+const orderedCheckpoints = computed(() =>
+  [...checkpoints.value].sort((first, second) => second.epoch - first.epoch),
+)
+const resumeAvailable = computed(
+  () => orderedCheckpoints.value.length > 0 || checkpointFallback.value,
+)
+
+function openResumeDialog(epoch?: number) {
+  if (!task.value || !['failed', 'cancelled'].includes(task.value.status)) return
+  resumeEpoch.value = epoch ?? orderedCheckpoints.value[0]?.epoch ?? null
+  resumeMode.value = 'full'
+  resumeOpen.value = true
+}
+
+function checkpointMap(checkpoint: TaskCheckpoint): string {
+  const value = checkpoint.metrics['metrics/mAP50(B)']
+  return typeof value === 'number' ? `mAP50 ${(value * 100).toFixed(2)}%` : ''
+}
+
+const resumeModeHint = computed(() =>
+  resumeMode.value === 'full'
+    ? '恢复优化器、学习率调度和 epoch 进度，继续到原定训练轮数。'
+    : '只加载模型权重，重新初始化优化器和学习率，按原配置重新训练。',
+)
+
+async function submitResume() {
   if (!task.value) return
+  if (!resumeAvailable.value) {
+    ElMessage.warning('没有可恢复的 checkpoint，请直接重跑')
+    return
+  }
+  resuming.value = true
   try {
-    const resumed = await api.resumeTask(task.value.id, mode)
-    ElMessage.success(`已创建恢复任务 ${resumed.id}`)
+    const resumed = await api.resumeTask(task.value.id, resumeMode.value, resumeEpoch.value)
+    resumeOpen.value = false
+    ElMessage.success(`已从 Epoch ${resumed.checkpoint_epoch ?? 0} 创建恢复任务 ${resumed.id}`)
     router.push({ name: 'task-detail', params: { id: resumed.id } })
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : '恢复任务失败')
+  } finally {
+    resuming.value = false
+  }
+}
+
+function openArtifacts() {
+  if (!task.value) return
+  router.push({
+    name: 'assets',
+    query: { tab: 'artifacts', task_id: task.value.id },
+  })
+}
+
+async function rerunTask() {
+  if (!task.value) return
+  rerunning.value = true
+  try {
+    const rerun = await api.rerunTask(task.value.id)
+    ElMessage.success(`已按相同配置重跑，任务 ${rerun.id}`)
+    router.push({ name: 'task-detail', params: { id: rerun.id } })
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '重跑任务失败')
+  } finally {
+    rerunning.value = false
   }
 }
 
@@ -210,11 +280,14 @@ async function loadAll(initial = false) {
     if (seq !== requestSeq) return
     const [manifestData, checkpointData] = await Promise.all([
       api.getTaskManifest(taskId.value).catch(() => null),
-      api.getTaskCheckpoints(taskId.value).catch(() => [] as TaskCheckpoint[]),
+      api.getTaskCheckpoints(taskId.value).catch(
+        () => ({ items: [], total: 0, fallback_available: false }) as TaskCheckpointList,
+      ),
     ])
     if (seq !== requestSeq) return
     manifest.value = manifestData
-    checkpoints.value = checkpointData
+    checkpoints.value = checkpointData.items
+    checkpointFallback.value = checkpointData.fallback_available
     if (metricData) {
       metrics.value = metricData
       metricsError.value = null
@@ -386,12 +459,21 @@ onBeforeUnmount(() => stopPolling())
           @click="loadAll(false)"
         />
         <el-button :icon="Download" @click="downloadLog">下载日志</el-button>
+        <el-button v-if="task" :icon="Box" @click="openArtifacts">模型产物</el-button>
+        <el-button
+          v-if="task && terminal"
+          :icon="RefreshRight"
+          :loading="rerunning"
+          @click="rerunTask"
+        >
+          重跑
+        </el-button>
         <el-button
           v-if="task && ['failed', 'cancelled'].includes(task.status)"
           :icon="Refresh"
-          @click="resumeTask('full')"
+          @click="openResumeDialog()"
         >
-          从 checkpoint 恢复
+          从断点继续
         </el-button>
         <el-button
           v-if="task && !terminal"
@@ -626,6 +708,32 @@ onBeforeUnmount(() => stopPolling())
             </div>
           </section>
 
+          <section class="panel side-info-card" v-if="checkpoints.length">
+            <div class="panel-head">
+              <h2>Checkpoint</h2>
+              <span class="panel-caption">{{ checkpoints.length }} 个</span>
+            </div>
+            <div class="lifecycle-body">
+              <button
+                v-for="checkpoint in checkpoints.slice(-5)"
+                :key="checkpoint.epoch"
+                type="button"
+                class="checkpoint-row"
+                :disabled="!['failed', 'cancelled'].includes(task.status)"
+                @click="openResumeDialog(checkpoint.epoch)"
+              >
+                <span>Epoch {{ checkpoint.epoch }}</span>
+                <span class="mono">{{ formatBytes(checkpoint.size_bytes) }}</span>
+                <span class="checkpoint-resume">
+                  {{ ['failed', 'cancelled'].includes(task.status) ? '恢复' : '已完成' }}
+                </span>
+              </button>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <div class="detail-meta-grid">
           <section class="panel side-info-card" v-if="manifest">
             <div class="panel-head">
               <h2>运行清单</h2>
@@ -651,29 +759,6 @@ onBeforeUnmount(() => stopPolling())
                 <span>数据质量</span>
                 <strong>{{ manifest.manifest.dataset?.quality_status ?? '—' }}</strong>
               </div>
-            </div>
-          </section>
-
-          <section class="panel side-info-card" v-if="checkpoints.length">
-            <div class="panel-head">
-              <h2>Checkpoint</h2>
-              <span class="panel-caption">{{ checkpoints.length }} 个</span>
-            </div>
-            <div class="lifecycle-body">
-              <button
-                v-for="checkpoint in checkpoints.slice(-5)"
-                :key="checkpoint.epoch"
-                type="button"
-                class="checkpoint-row"
-                :disabled="!['failed', 'cancelled'].includes(task.status)"
-                @click="resumeTask('full')"
-              >
-                <span>Epoch {{ checkpoint.epoch }}</span>
-                <span class="mono">{{ formatBytes(checkpoint.size_bytes) }}</span>
-                <span class="checkpoint-resume">
-                  {{ ['failed', 'cancelled'].includes(task.status) ? '恢复' : '已完成' }}
-                </span>
-              </button>
             </div>
           </section>
 
@@ -708,9 +793,77 @@ onBeforeUnmount(() => stopPolling())
               </div>
             </div>
           </section>
-        </aside>
       </div>
     </template>
+
+    <el-dialog
+      v-model="resumeOpen"
+      title="从断点继续训练"
+      width="min(620px, calc(100vw - 32px))"
+    >
+      <div class="resume-base">
+        <div>
+          <span class="soft-label">原任务</span>
+          <strong>{{ task?.name }}</strong>
+        </div>
+        <span class="mono">{{ task?.id }}</span>
+      </div>
+
+      <div class="resume-block">
+        <div class="resume-block-head">
+          <strong>选择 checkpoint</strong>
+          <span>中断在 epoch 内时，会回退到最近一个完整保存点</span>
+        </div>
+        <div v-if="orderedCheckpoints.length" class="resume-checkpoints">
+          <button
+            v-for="checkpoint in orderedCheckpoints"
+            :key="checkpoint.epoch"
+            type="button"
+            class="resume-checkpoint"
+            :class="{ active: resumeEpoch === checkpoint.epoch }"
+            @click="resumeEpoch = checkpoint.epoch"
+          >
+            <span class="resume-radio"></span>
+            <span class="resume-cp-copy">
+              <strong>Epoch {{ checkpoint.epoch }}</strong>
+              <small>{{ formatBytes(checkpoint.size_bytes) }} · {{ checkpoint.is_best ? 'best' : 'last' }}</small>
+            </span>
+            <span class="resume-cp-map">{{ checkpointMap(checkpoint) || '无指标' }}</span>
+          </button>
+        </div>
+        <div v-else class="resume-empty" :class="{ blocked: !checkpointFallback }">
+          <template v-if="checkpointFallback">
+            没有登记 checkpoint，将使用任务目录中的 <span class="mono">last.pt</span>。
+          </template>
+          <template v-else>
+            该任务在第一个 epoch 完成前就中断了，没有可恢复的断点。请直接使用「重跑」。
+          </template>
+        </div>
+      </div>
+
+      <div class="resume-block">
+        <div class="resume-block-head">
+          <strong>恢复方式</strong>
+        </div>
+        <el-radio-group v-model="resumeMode" class="resume-modes">
+          <el-radio value="full" border>完整恢复</el-radio>
+          <el-radio value="weights" border>仅加载权重</el-radio>
+        </el-radio-group>
+        <p class="resume-mode-hint">{{ resumeModeHint }}</p>
+      </div>
+
+      <template #footer>
+        <el-button @click="resumeOpen = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="resuming"
+          :disabled="!resumeAvailable"
+          @click="submitResume"
+        >
+          创建恢复任务
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -853,7 +1006,7 @@ onBeforeUnmount(() => stopPolling())
 .hero-status-icon.state-succeeded {
   border-color: rgba(22, 134, 95, 0.22);
   background: rgba(22, 134, 95, 0.09);
-  color: #16865f;
+  color: var(--success);
 }
 
 .hero-status-icon.state-failed {
@@ -954,7 +1107,7 @@ onBeforeUnmount(() => stopPolling())
 }
 
 .hero-progress > span.state-succeeded {
-  background: #16865f;
+  background: var(--success);
 }
 
 .hero-progress > span.state-failed {
@@ -1978,4 +2131,211 @@ onBeforeUnmount(() => stopPolling())
   color: var(--accent);
   font-size: 12px;
 }
+
+.detail-side {
+  position: static;
+}
+
+.detail-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.detail-meta-grid .side-info-card {
+  height: 100%;
+  border-radius: var(--radius);
+}
+
+@media (min-width: 1101px) {
+  .hero-stats {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .hero-stat {
+    border-top: 0 !important;
+  }
+
+  .hero-stat + .hero-stat,
+  .hero-stat:nth-child(4) {
+    padding-left: 14px;
+    border-left: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 760px) {
+  .detail-meta-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.resume-base {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.resume-base > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.resume-base strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resume-base > .mono {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.resume-block {
+  margin-top: 18px;
+}
+
+.resume-block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.resume-block-head strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.resume-block-head span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.resume-checkpoints {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.resume-checkpoint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.resume-checkpoint:hover {
+  border-color: var(--accent-line);
+}
+
+.resume-checkpoint.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.resume-radio {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--panel);
+}
+
+.resume-checkpoint.active .resume-radio {
+  border: 4px solid var(--accent);
+}
+
+.resume-cp-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.resume-cp-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.resume-cp-copy small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.resume-cp-map {
+  flex: none;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.resume-empty {
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.resume-empty.blocked {
+  border-color: color-mix(in srgb, var(--amber) 28%, var(--border));
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.resume-modes {
+  display: flex;
+  gap: 8px;
+}
+
+.resume-modes :deep(.el-radio) {
+  margin-right: 0;
+}
+
+.resume-mode-hint {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+@media (max-width: 480px) {
+  .resume-block-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .resume-cp-map {
+    display: none;
+  }
+}
 </style>
+

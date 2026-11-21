@@ -217,9 +217,6 @@ onBeforeUnmount(() => {
       <div class="page-heading">
         <span class="eyebrow">流水线编排</span>
         <h1 class="page-title">训练流水线</h1>
-        <p class="page-subtitle">
-          预处理 → 训练 → 评估串行编排。每个阶段都是独立的 CPU 任务，复用资源调度、心跳、日志、重试和失败回收。
-        </p>
       </div>
       <div class="page-actions">
         <div class="auto-refresh">
@@ -804,7 +801,7 @@ onBeforeUnmount(() => {
 }
 
 .stage-tile.succeeded .stage-status {
-  color: #16865f;
+  color: var(--success);
 }
 
 .stage-tile.failed .stage-status {
@@ -1003,7 +1000,7 @@ onBeforeUnmount(() => {
 
 .stage-pill.succeeded {
   background: rgba(22, 134, 95, 0.1);
-  color: #16865f;
+  color: var(--success);
 }
 
 .stage-pill.failed {
@@ -1653,5 +1650,124 @@ onBeforeUnmount(() => {
   .pipeline-guide {
     padding: 16px;
   }
+}
+</style>
+
+<style scoped>
+/* Ultralytics-inspired light pipeline surfaces */
+.pipeline-guide {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.pipeline-guide .guide-head h2 {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.pipeline-guide .soft-label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.pipeline-guide .tag-soft.accent {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: none;
+}
+
+.pipeline-guide .guide-stage {
+  border-color: var(--border);
+  border-radius: 10px;
+  background: var(--panel-soft);
+  box-shadow: none;
+}
+
+.pipeline-guide .guide-index {
+  color: var(--accent);
+  font-size: 12px;
+  text-shadow: none;
+}
+
+.pipeline-guide .guide-stage strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.pipeline-guide .guide-stage span:not(.guide-index):not(.guide-arrow) {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.pipeline-guide .guide-arrow {
+  color: var(--text-muted);
+}
+
+.pipeline-guide .guide-artifacts {
+  border-left-color: var(--border);
+}
+
+.pipeline-guide .guide-artifacts .soft-label {
+  color: var(--text-muted);
+}
+
+.pipeline-guide .guide-artifacts strong {
+  color: var(--accent);
+  font-size: 14px;
+  text-shadow: none;
+}
+
+.pipeline-guide .guide-artifacts > span:last-child {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.pipeline-card {
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+.pipeline-card:hover {
+  box-shadow: none;
+}
+
+.stage-tile {
+  border-radius: 10px;
+  background: var(--panel-soft);
+  box-shadow: none;
+}
+
+.stage-tile.succeeded {
+  border-color: color-mix(in srgb, var(--success) 24%, var(--border));
+  background: var(--success-soft);
+}
+
+.stage-tile.running {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+
+.stage-task-link {
+  color: var(--accent);
+}
+
+.stage-pill {
+  border-radius: 999px;
+}
+
+.stage-pill.succeeded {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.stage-connector {
+  background: var(--border-strong);
 }
 </style>

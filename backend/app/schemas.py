@@ -51,7 +51,7 @@ class TaskCreate(BaseModel):
     resume_mode: str | None = Field(default=None, pattern=r"^(full|weights)$")
     priority: int = Field(default=50, ge=0, le=100)
     max_runtime_seconds: int = Field(default=1800, ge=10, le=604_800)
-    max_retries: int = Field(default=0, ge=0, le=5)
+    max_retries: int = Field(default=3, ge=0, le=5)
     notes: str | None = Field(default=None, max_length=500)
 
     @field_validator("name")
@@ -230,10 +230,12 @@ class TaskCheckpointOut(BaseModel):
 class TaskCheckpointListResponse(BaseModel):
     items: list[TaskCheckpointOut]
     total: int
+    fallback_available: bool = False
 
 
 class ResumeTaskRequest(BaseModel):
     mode: str = Field(default="full", pattern=r"^(full|weights)$")
+    checkpoint_epoch: int | None = Field(default=None, ge=0, le=100_000)
 
 
 class CheckpointIngestRequest(BaseModel):
@@ -428,6 +430,15 @@ class ClusterOverview(BaseModel):
     services: ServicesInfo
     uptime_seconds: int
     updated_at: UtcDateTime
+
+
+class TaskDistributionOut(BaseModel):
+    window: str
+    label: str
+    since: OptionalUtcDateTime = None
+    generated_at: UtcDateTime
+    total: int
+    counts: dict[str, int] = Field(default_factory=dict)
 
 
 class HealthResponse(BaseModel):
