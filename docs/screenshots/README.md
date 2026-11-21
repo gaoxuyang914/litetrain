@@ -10,7 +10,7 @@ Redis + Vite) with Playwright-driven Microsoft Edge at a 1440×1000 viewport.
 | `submit.png` | YOLO CPU task form and live command preview |
 | `detail.png` | Succeeded task: logs, metrics and lifecycle |
 | `queue.png` | Pending task detail while both simulated nodes are occupied |
-| `dark.png` | Dark mode task detail |
+| `dark.png` | Dark mode cluster overview |
 | `pipelines.png` | Serial preprocess → train → evaluate pipelines, both completed |
 | `assets.png` | Dataset registry with built-in COCO128 and an uploaded 24-image dataset |
 | `artifacts.png` | Model artifact registry with kind filter, SHA-256 and download |

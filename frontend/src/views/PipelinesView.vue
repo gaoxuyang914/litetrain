@@ -272,7 +272,16 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-else class="pipeline-list">
-      <article v-for="pipeline in pipelines" :key="pipeline.id" class="panel pipeline-card">
+      <article
+        v-for="pipeline in pipelines"
+        :key="pipeline.id"
+        class="panel pipeline-card"
+        :class="{
+          'is-running': pipeline.status === 'running',
+          'is-failed': pipeline.status === 'failed',
+          'is-succeeded': pipeline.status === 'succeeded',
+        }"
+      >
         <div class="pipeline-card-head">
           <div class="pipeline-title-block">
             <div class="pipeline-title-row">
@@ -1146,6 +1155,272 @@ onBeforeUnmount(() => {
 
   .guide-artifacts {
     display: none;
+  }
+}
+</style>
+
+<style scoped>
+/* Premium orchestration surface */
+.pipeline-guide {
+  position: relative;
+  padding: 21px 24px 22px;
+  overflow: hidden;
+  border-color: rgba(92, 245, 185, 0.17);
+  background:
+    radial-gradient(520px 260px at 102% -22%, rgba(84, 255, 190, 0.2), transparent 66%),
+    radial-gradient(420px 240px at 0% 120%, rgba(112, 94, 242, 0.18), transparent 64%),
+    linear-gradient(145deg, #09271b 0%, #061a11 58%, #04130c 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.075) inset,
+    0 30px 70px -46px rgba(2, 25, 14, 0.65);
+}
+
+.pipeline-guide::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(154, 255, 215, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(154, 255, 215, 0.035) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: radial-gradient(circle at 60% 0%, black, transparent 72%);
+}
+
+.pipeline-guide::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 11%;
+  right: 11%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(139, 255, 211, 0.45), transparent);
+}
+
+.pipeline-guide > * {
+  position: relative;
+  z-index: 1;
+}
+
+.pipeline-guide .guide-head h2 {
+  color: #f2fff9;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 580;
+  letter-spacing: -0.03em;
+}
+
+.pipeline-guide .soft-label {
+  color: #6d8e7e;
+}
+
+.pipeline-guide .tag-soft.accent {
+  border-color: rgba(111, 255, 204, 0.18);
+  background: rgba(66, 225, 164, 0.08);
+  color: #91ffd7;
+  box-shadow: 0 0 22px -14px rgba(74, 255, 190, 0.8);
+}
+
+.pipeline-guide .guide-stage {
+  border-color: rgba(255, 255, 255, 0.075);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 20px 36px -34px rgba(0, 0, 0, 0.9);
+}
+
+.pipeline-guide .guide-index {
+  color: #9cffd8;
+  text-shadow: 0 0 14px rgba(95, 255, 198, 0.45);
+}
+
+.pipeline-guide .guide-stage strong {
+  color: #e6fff4;
+}
+
+.pipeline-guide .guide-stage span:not(.guide-index):not(.guide-arrow) {
+  color: #6d8f7e;
+}
+
+.pipeline-guide .guide-arrow {
+  color: #466c5a;
+}
+
+.pipeline-guide .guide-artifacts {
+  border-left-color: rgba(255, 255, 255, 0.09);
+}
+
+.pipeline-guide .guide-artifacts .soft-label {
+  color: #5e7e6d;
+}
+
+.pipeline-guide .guide-artifacts strong {
+  color: #c6f36a;
+  text-shadow: 0 0 18px rgba(198, 243, 106, 0.16);
+}
+
+.pipeline-guide .guide-artifacts > span:last-child {
+  color: #5f7f6e;
+}
+
+.pipeline-card {
+  padding: 18px 20px 14px;
+  border-radius: 20px;
+  background:
+    linear-gradient(155deg, color-mix(in srgb, var(--panel) 96%, white), var(--panel));
+}
+
+.pipeline-card::before {
+  content: '';
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 0;
+  width: 2px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, transparent, var(--border-strong), transparent);
+}
+
+.pipeline-card.is-running::before {
+  background: linear-gradient(180deg, transparent, var(--accent-bright), transparent);
+  box-shadow: 0 0 16px var(--accent);
+}
+
+.pipeline-card.is-failed::before {
+  background: linear-gradient(180deg, transparent, var(--red), transparent);
+}
+
+.pipeline-card.is-succeeded::before {
+  background: linear-gradient(180deg, transparent, var(--accent), transparent);
+}
+
+.pipeline-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
+.pipeline-title-block h2 {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+
+.pipeline-title-row {
+  gap: 9px;
+}
+
+.pipeline-id {
+  color: var(--text-muted);
+  font-size: 8px;
+  letter-spacing: 0.02em;
+}
+
+.pipeline-meta {
+  margin-top: 5px;
+  color: var(--text-muted);
+}
+
+.pipeline-progress-row {
+  margin: 14px 0;
+}
+
+.pipeline-progress {
+  height: 5px;
+  background: color-mix(in srgb, var(--panel-soft) 68%, var(--border));
+  box-shadow: 0 1px 0 var(--panel-highlight) inset;
+}
+
+.pipeline-progress span {
+  background: linear-gradient(90deg, var(--accent-strong), var(--accent-bright) 58%, var(--lime));
+  box-shadow: 0 0 14px rgba(57, 223, 160, 0.35);
+}
+
+.stage-row {
+  gap: 10px;
+}
+
+.stage-tile {
+  padding: 11px 12px;
+  border-color: color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 11px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--panel-soft) 82%, transparent), var(--panel));
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.stage-tile:hover {
+  border-color: var(--accent-line);
+}
+
+.stage-tile.succeeded {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--accent-soft) 44%, var(--panel)), var(--panel));
+}
+
+.stage-tile.running {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  background:
+    radial-gradient(180px 80px at 100% 0%, var(--accent-soft), transparent 70%),
+    var(--panel);
+  box-shadow: 0 0 30px -24px var(--accent);
+}
+
+.stage-index {
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 650;
+}
+
+.stage-name {
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.stage-task-link {
+  color: var(--accent-strong);
+}
+
+.stage-connector {
+  right: -12px;
+  width: 12px;
+  background: linear-gradient(90deg, var(--border-strong), transparent);
+}
+
+.pipeline-foot {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top-color: color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+.pipeline-failure {
+  border: 1px solid color-mix(in srgb, var(--red) 16%, transparent);
+}
+
+.pipeline-dialog .create-intro {
+  background:
+    radial-gradient(240px 120px at 100% 0%, var(--accent-soft), transparent 70%),
+    var(--panel-soft);
+}
+
+.detail-summary h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.detail-stage {
+  border-radius: 11px;
+}
+
+@media (max-width: 900px) {
+  .pipeline-guide {
+    padding: 17px;
+  }
+
+  .pipeline-card {
+    padding: 16px;
   }
 }
 </style>

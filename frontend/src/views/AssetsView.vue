@@ -384,7 +384,7 @@ onBeforeUnmount(() => {
       <div class="asset-stat">
         <span class="asset-icon violet"><el-icon><Box /></el-icon></span>
         <div><strong>{{ artifacts.length }}</strong><span>artifacts</span></div>
-        <small>{{ formatBytes(artifactBytes) }} 可下载</small>
+        <small>{{ formatBytes(artifactBytes) }}</small>
       </div>
       <div class="asset-stat">
         <span class="asset-icon amber"><el-icon><Connection /></el-icon></span>
@@ -473,6 +473,20 @@ onBeforeUnmount(() => {
             </div>
           </template>
         </el-table>
+        <div class="dataset-cta">
+          <div class="dataset-cta-copy">
+            <span class="soft-label">From data to weights</span>
+            <h3>用版本化数据启动一条三阶段流水线</h3>
+            <p>预处理自动生成安全子集，训练完成后权重与指标会回到资产页，形成可追溯闭环。</p>
+          </div>
+          <div class="dataset-cta-mark" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <div class="dataset-cta-actions">
+            <el-button type="primary" @click="router.push({ name: 'pipelines' })">前往训练流水线</el-button>
+            <el-button text @click="openUpload">上传新版本</el-button>
+          </div>
+        </div>
       </template>
 
       <template v-else-if="activeTab === 'artifacts'">
@@ -1339,6 +1353,443 @@ onBeforeUnmount(() => {
 
   .asset-tab {
     flex: 1;
+  }
+}
+</style>
+
+<style scoped>
+/* Asset command center */
+.asset-summary {
+  gap: 12px;
+}
+
+.asset-stat,
+.asset-note {
+  min-height: 78px;
+  border-radius: 17px;
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease,
+    border-color 0.22s ease;
+}
+
+.asset-stat {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(155deg, color-mix(in srgb, var(--panel) 96%, white), var(--panel));
+}
+
+.asset-stat::before {
+  content: '';
+  position: absolute;
+  top: -50px;
+  right: -38px;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  opacity: 0.58;
+  pointer-events: none;
+}
+
+.asset-stat:nth-child(2)::before {
+  background: var(--violet-soft);
+}
+
+.asset-stat:nth-child(3)::before {
+  background: var(--amber-soft);
+}
+
+.asset-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
+.asset-icon {
+  width: 34px;
+  height: 34px;
+  border: 1px solid color-mix(in srgb, currentColor 13%, transparent);
+  border-radius: 10px;
+  font-size: 16px;
+  box-shadow: 0 0 28px -18px currentColor;
+}
+
+.asset-stat strong {
+  font-family: var(--font-display);
+  font-size: 27px;
+  font-weight: 650;
+  letter-spacing: -0.055em;
+}
+
+.asset-stat span {
+  font-size: 7.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.asset-stat small {
+  color: var(--text-muted);
+  font-size: 7.5px;
+  white-space: nowrap;
+}
+
+.asset-note {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(84, 234, 174, 0.17);
+  background:
+    radial-gradient(260px 150px at 104% -10%, rgba(82, 255, 188, 0.18), transparent 65%),
+    radial-gradient(200px 140px at -8% 120%, rgba(198, 243, 106, 0.07), transparent 70%),
+    linear-gradient(145deg, #0a291d, #05170f 72%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 24px 48px -38px rgba(5, 30, 19, 0.72);
+}
+
+.asset-note .soft-label {
+  color: #729283;
+}
+
+.asset-note p {
+  color: #7e9b8c;
+  font-size: 8.5px;
+}
+
+.asset-note code {
+  color: #c6f36a;
+}
+
+.assets-panel {
+  border-radius: 21px;
+}
+
+.asset-tabs-row {
+  gap: 5px;
+  padding: 11px 17px;
+  background:
+    linear-gradient(100deg, color-mix(in srgb, var(--panel-soft) 58%, transparent), transparent 62%);
+}
+
+.asset-tab {
+  gap: 9px;
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+
+.asset-tab .el-icon {
+  display: grid;
+  width: 29px;
+  height: 29px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 50%, transparent);
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.asset-tab strong {
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.asset-tab small {
+  font-size: 7px;
+  letter-spacing: 0.03em;
+}
+
+.asset-tab:hover {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--panel) 56%, transparent);
+}
+
+.asset-tab.active {
+  border-color: var(--accent-line);
+  background:
+    linear-gradient(110deg, var(--accent-soft), color-mix(in srgb, var(--accent-soft) 22%, transparent));
+  box-shadow:
+    0 1px 0 var(--panel-highlight) inset,
+    0 10px 24px -24px var(--accent);
+}
+
+.asset-tab.active .el-icon {
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: 0 0 18px -10px var(--accent);
+}
+
+.asset-tab.active strong {
+  color: var(--accent-strong);
+}
+
+html.dark .asset-tab.active strong {
+  color: var(--accent);
+}
+
+.asset-skeleton {
+  padding: 22px;
+}
+
+.dataset-icon,
+.artifact-icon {
+  width: 31px;
+  height: 31px;
+  border: 1px solid color-mix(in srgb, currentColor 11%, transparent);
+  border-radius: 9px;
+  box-shadow: 0 0 22px -18px currentColor;
+}
+
+.dataset-cell strong,
+.artifact-cell strong {
+  font-weight: 600;
+}
+
+.artifact-toolbar {
+  padding: 9px 17px;
+  background: color-mix(in srgb, var(--panel-soft) 62%, transparent);
+}
+
+.filter-chip {
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 8px;
+}
+
+.filter-chip.active {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.asset-table :deep(.el-table__row:hover) {
+  background: color-mix(in srgb, var(--accent-soft) 34%, var(--panel-soft));
+}
+
+.artifact-pager {
+  background: color-mix(in srgb, var(--panel-soft) 46%, transparent);
+}
+
+.dataset-cta {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin: 5px 17px 17px;
+  padding: 17px 20px;
+  overflow: hidden;
+  border: 1px solid rgba(95, 238, 183, 0.16);
+  border-radius: 15px;
+  background:
+    radial-gradient(300px 170px at 92% -20%, rgba(74, 243, 178, 0.2), transparent 67%),
+    radial-gradient(240px 160px at 15% 120%, rgba(198, 243, 106, 0.07), transparent 70%),
+    linear-gradient(130deg, #09271b, #061a11 62%, #05150e);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 24px 50px -40px rgba(3, 26, 15, 0.7);
+}
+
+.dataset-cta-copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 640px;
+}
+
+.dataset-cta-copy .soft-label {
+  color: #6e9080;
+  font-size: 8px;
+}
+
+.dataset-cta-copy h3 {
+  color: #effff8;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 580;
+  letter-spacing: -0.025em;
+}
+
+.dataset-cta-copy p {
+  color: #7e9b8c;
+  font-size: 9px;
+  line-height: 1.65;
+}
+
+.dataset-cta-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  flex: none;
+}
+
+.dataset-cta-actions .el-button.is-text {
+  color: #9ab7a8;
+}
+
+.dataset-cta-mark {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  width: 54px;
+  height: 35px;
+  flex: none;
+  opacity: 0.65;
+}
+
+.dataset-cta-mark span {
+  width: 11px;
+  border: 1px solid rgba(120, 255, 203, 0.24);
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(180deg, rgba(82, 255, 188, 0.28), rgba(82, 255, 188, 0.04));
+}
+
+.dataset-cta-mark span:nth-child(1) {
+  height: 17px;
+}
+
+.dataset-cta-mark span:nth-child(2) {
+  height: 30px;
+}
+
+.dataset-cta-mark span:nth-child(3) {
+  height: 23px;
+}
+
+.dataset-cta-mark::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(126, 255, 208, 0.28), transparent);
+}
+
+.webhook-layout {
+  min-height: 410px;
+}
+
+.webhook-list {
+  padding: 18px;
+  background:
+    radial-gradient(500px 240px at 0% 0%, var(--accent-soft), transparent 70%);
+}
+
+.webhook-card {
+  position: relative;
+  padding: 13px 14px;
+  overflow: hidden;
+  border-radius: 13px;
+  background:
+    linear-gradient(150deg, color-mix(in srgb, var(--panel) 96%, white), var(--panel));
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.webhook-card::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(180deg, transparent, var(--accent), transparent);
+  opacity: 0.7;
+}
+
+.webhook-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent-line);
+  box-shadow: 0 20px 40px -36px rgba(7, 42, 28, 0.5);
+}
+
+.webhook-card-head strong {
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.webhook-card-head span {
+  font-size: 7.5px;
+}
+
+.webhook-events {
+  margin-top: 9px;
+}
+
+.event-pill {
+  padding: 2.5px 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--panel-soft) 72%, transparent);
+  font-size: 7px;
+}
+
+.webhook-stats {
+  margin-top: 9px;
+}
+
+.webhook-actions {
+  margin-top: 8px;
+  padding-top: 7px;
+}
+
+.delivery-panel {
+  padding: 18px;
+  background:
+    radial-gradient(420px 260px at 100% 0%, var(--violet-soft), transparent 68%),
+    color-mix(in srgb, var(--panel-soft) 88%, var(--panel));
+}
+
+.delivery-head h3 {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.delivery-row {
+  padding: 9px 0;
+}
+
+.delivery-copy strong {
+  font-size: 8px;
+}
+
+.webhook-help {
+  background:
+    linear-gradient(150deg, color-mix(in srgb, var(--panel-soft) 82%, transparent), var(--panel));
+}
+
+@media (max-width: 1100px) {
+  .asset-note {
+    min-height: 70px;
+  }
+}
+
+@media (max-width: 760px) {
+  .dataset-cta {
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 5px 12px 14px;
+  }
+
+  .dataset-cta-mark {
+    display: none;
+  }
+
+  .dataset-cta-actions {
+    width: 100%;
+    margin-left: 0;
   }
 }
 </style>

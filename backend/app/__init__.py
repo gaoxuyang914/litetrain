@@ -1,3 +1,3 @@
 """LiteTrain — a small CPU training platform built around FastAPI, Ray and Redis."""
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"

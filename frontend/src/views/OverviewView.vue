@@ -36,7 +36,12 @@ const topologyOpen = ref(false)
 const topologyBusy = ref(false)
 const topologyDraft = ref<NodeTopologyItem[]>([])
 const nodeActionBusy = ref<string | null>(null)
+const compact = ref(false)
 let timer: number | undefined
+
+function syncViewport() {
+  compact.value = window.innerWidth < 1120
+}
 
 const cpu = computed(() => overview.value?.cpu)
 const quota = computed(() => overview.value?.quota)
@@ -171,11 +176,14 @@ function openTask(task: Task) {
 }
 
 onMounted(async () => {
+  syncViewport()
+  window.addEventListener('resize', syncViewport)
   await load()
   timer = window.setInterval(() => load(true), 3000)
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', syncViewport)
   if (timer) window.clearInterval(timer)
 })
 </script>
@@ -185,10 +193,19 @@ onBeforeUnmount(() => {
     <div class="page-head">
       <div class="page-heading">
         <span class="eyebrow">Cluster overview</span>
-        <h1 class="page-title">集群总览</h1>
+        <div class="title-row">
+          <h1 class="page-title">集群总览</h1>
+          <span class="title-live"><i></i>LIVE</span>
+        </div>
         <p class="page-subtitle">
           查看逻辑 CPU 配额、队列压力与 Ray 执行器状态。资源释放后，等待中的任务会自动被调度。
         </p>
+        <div class="page-signals">
+          <span><i class="signal-dot"></i>{{ onlineNodes.length }} nodes online</span>
+          <span>Ray {{ services?.ray_cpus ?? '—' }} CPU</span>
+          <span>{{ overview?.tasks.pending ?? 0 }} queued</span>
+          <span class="mono">uptime {{ formatDuration(overview?.uptime_seconds ?? 0) }}</span>
+        </div>
       </div>
       <div class="page-actions">
         <button class="sync-chip" type="button" :class="{ spinning: refreshing }" @click="load(true)">
@@ -334,7 +351,7 @@ onBeforeUnmount(() => {
           </div>
 
           <el-table :data="overview.nodes" class="node-table" row-key="id">
-            <el-table-column label="节点" min-width="170">
+            <el-table-column label="节点" :min-width="compact ? 140 : 170">
               <template #default="{ row }">
                 <div class="node-name">
                   <span class="node-glyph"><el-icon><Cpu /></el-icon></span>
@@ -345,14 +362,14 @@ onBeforeUnmount(() => {
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="82">
+            <el-table-column label="状态" :width="compact ? 64 : 82">
               <template #default="{ row }">
                 <span class="node-status" :class="{ online: row.status === 'online' }">
                   <i></i>{{ row.status === 'online' ? '在线' : row.status }}
                 </span>
               </template>
             </el-table-column>
-            <el-table-column label="调度占用" min-width="150">
+            <el-table-column label="调度占用" :min-width="compact ? 120 : 150">
               <template #default="{ row }">
                 <div class="node-meter-cell">
                   <div class="row between node-meter-top">
@@ -365,7 +382,7 @@ onBeforeUnmount(() => {
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="主机负载" min-width="135">
+            <el-table-column v-if="!compact" label="主机负载" min-width="135">
               <template #default="{ row }">
                 <div class="node-meter-cell">
                   <div class="row between node-meter-top">
@@ -377,12 +394,12 @@ onBeforeUnmount(() => {
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="运行任务" width="84" align="center">
+            <el-table-column v-if="!compact" label="运行任务" width="84" align="center">
               <template #default="{ row }">
                 <span class="task-count-pill">{{ row.running_tasks }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="76" align="center">
+            <el-table-column v-if="!compact" label="操作" width="76" align="center">
               <template #default="{ row }">
                 <el-button
                   size="small"
@@ -1408,6 +1425,320 @@ onBeforeUnmount(() => {
 
   .stat-value-row .metric-value {
     font-size: 28px;
+  }
+}
+</style>
+
+<style scoped>
+/* Cluster cockpit refinements */
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.title-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  box-shadow: 0 0 22px -14px var(--accent);
+}
+
+.title-live i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: cockpit-pulse 2s ease-out infinite;
+}
+
+.page-signals {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.page-signals span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 42%, transparent);
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 7.5px;
+  letter-spacing: 0.025em;
+}
+
+.signal-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.stat-grid {
+  gap: 15px;
+}
+
+.stat-card {
+  min-height: 147px;
+  padding: 18px 19px 15px;
+  border-radius: 19px;
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease,
+    border-color 0.22s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
+.stat-top {
+  margin-bottom: 13px;
+}
+
+.stat-icon {
+  width: 30px;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 9px;
+}
+
+.stat-kicker {
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+}
+
+.stat-trend {
+  padding: 3px 7px;
+  border-radius: 6px;
+  font-size: 8px;
+}
+
+.stat-value-row .metric-value {
+  font-size: 36px;
+  line-height: 0.96;
+}
+
+.stat-denom {
+  font-size: 12px;
+}
+
+.stat-foot {
+  margin-top: 10px;
+  font-size: 9px;
+}
+
+.accent-card {
+  border-color: rgba(76, 240, 179, 0.25);
+  background:
+    radial-gradient(320px 180px at 100% 0%, rgba(89, 255, 193, 0.2), transparent 68%),
+    radial-gradient(220px 160px at 5% 110%, rgba(198, 243, 106, 0.09), transparent 70%),
+    linear-gradient(145deg, #0a2b1f 0%, #061b12 55%, #04140d 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 26px 50px -32px rgba(4, 28, 18, 0.55);
+}
+
+html.dark .accent-card {
+  border-color: rgba(76, 240, 179, 0.25);
+  background:
+    radial-gradient(320px 180px at 100% 0%, rgba(89, 255, 193, 0.2), transparent 68%),
+    radial-gradient(220px 160px at 5% 110%, rgba(198, 243, 106, 0.08), transparent 70%),
+    linear-gradient(145deg, #0d3023 0%, #071c13 55%, #04120c 100%);
+}
+
+.accent-card::after {
+  top: -62px;
+  right: -36px;
+  width: 190px;
+  height: 190px;
+  background: radial-gradient(circle, rgba(77, 255, 188, 0.22), transparent 68%);
+  filter: blur(12px);
+  opacity: 1;
+}
+
+.accent-card .stat-icon {
+  border-color: rgba(106, 255, 202, 0.18);
+  background: rgba(79, 240, 181, 0.1);
+  color: #8bffd6;
+  box-shadow: 0 0 22px -10px rgba(83, 255, 191, 0.8);
+}
+
+.accent-card .stat-kicker {
+  color: #98b9aa;
+}
+
+.accent-card .stat-trend {
+  background: rgba(94, 243, 185, 0.11);
+  color: #9dffda;
+}
+
+.accent-card .stat-value-row .metric-value {
+  color: #f2fff9;
+  text-shadow: 0 0 32px rgba(99, 255, 199, 0.18);
+}
+
+.accent-card .stat-denom {
+  color: #9ebeb0;
+}
+
+.accent-card .meter {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: none;
+}
+
+.accent-card .meter span {
+  background: linear-gradient(90deg, #2ed69c, #c6f36a);
+  box-shadow: 0 0 16px rgba(92, 255, 193, 0.48);
+}
+
+.accent-card .stat-foot {
+  color: #8eae9f;
+}
+
+.accent-card .stat-inline {
+  color: #d6ffd6;
+}
+
+.accent-card .stat-inline i {
+  background: #8bffd6;
+}
+
+.stat-card:not(.accent-card) .stat-icon {
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.6), transparent 50%),
+    var(--panel-soft);
+}
+
+.nodes-panel,
+.services-panel,
+.queue-panel,
+.recent-panel {
+  border-radius: 20px;
+}
+
+.nodes-panel .panel-head {
+  background:
+    linear-gradient(105deg, color-mix(in srgb, var(--accent-soft) 48%, transparent), transparent 62%);
+}
+
+.node-table :deep(.el-table__row) {
+  transition: background 0.2s ease;
+}
+
+.node-table :deep(.el-table__row:hover) {
+  background: color-mix(in srgb, var(--accent-soft) 38%, var(--panel-soft));
+}
+
+.node-glyph,
+.recent-glyph {
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+  background:
+    radial-gradient(circle at 35% 20%, var(--accent-soft), transparent 70%),
+    var(--panel-soft);
+  box-shadow: 0 0 24px -18px var(--accent);
+}
+
+.service-row {
+  border-radius: 12px;
+}
+
+.quota-box {
+  border-radius: 13px;
+  background:
+    linear-gradient(150deg, color-mix(in srgb, var(--panel-soft) 82%, transparent), var(--panel));
+}
+
+.recent-panel .panel-head {
+  background:
+    linear-gradient(105deg, color-mix(in srgb, var(--violet-soft) 38%, transparent), transparent 65%);
+}
+
+.recent-task strong {
+  font-weight: 600;
+}
+
+.row-arrow {
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.recent-table :deep(.el-table__row):hover .row-arrow {
+  color: var(--accent);
+  transform: translateX(3px);
+}
+
+.sync-chip {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 54%, transparent);
+  box-shadow: 0 1px 0 var(--panel-highlight) inset;
+}
+
+@keyframes cockpit-pulse {
+  0% {
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  70% {
+    box-shadow: 0 0 0 4px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (max-width: 1180px) {
+  .overview-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .side-stack {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .side-stack {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .title-live {
+    display: none;
+  }
+
+  .page-signals span:nth-child(n + 3) {
+    display: none;
+  }
+
+  .stat-card {
+    min-height: 132px;
+  }
+
+  .stat-value-row .metric-value {
+    font-size: 31px;
   }
 }
 </style>
