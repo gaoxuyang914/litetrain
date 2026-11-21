@@ -16,6 +16,7 @@ Redis + Vite) with Playwright-driven Microsoft Edge at a 1440×1000 viewport.
 | `artifacts.png` | Model artifact registry with kind filter, SHA-256 and download |
 | `webhooks.png` | Signed webhook endpoint, delivery outbox and HMAC header hint |
 | `topology.png` | Multi-node topology editor |
+| `sidebar-collapsed.png` | Desktop navigation rail collapsed to icons |
 
 The screenshots are illustrative; the actual demo can be run locally with:
 
