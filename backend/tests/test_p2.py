@@ -372,6 +372,43 @@ def test_pipeline_coordinator_serial_stages(client, ctx, payload):
     shutil.rmtree(ctx.settings.runs_dir / eval_task_id, ignore_errors=True)
 
 
+def test_pipeline_failure_stops_later_stages(client, ctx):
+    created = client.post(
+        "/api/v1/pipelines",
+        json={
+            "name": "failure pipeline",
+            "source_dataset": "coco128.yaml",
+            "model": "yolov8n.pt",
+            "epochs": 1,
+            "imgsz": 64,
+            "batch_size": 1,
+            "cpu_cores": 2,
+            "priority": 50,
+            "max_runtime_seconds": 120,
+            "max_retries": 0,
+            "max_images": 1,
+        },
+    )
+    assert created.status_code == 201, created.text
+    pipeline_id = created.json()["id"]
+    first_task_id = created.json()["stages"][0]["task"]["id"]
+    with ctx.db.session() as session:
+        task = session.get(Task, first_task_id)
+        assert task is not None
+        task.status = "failed"
+        task.exit_code = 1
+        task.failure_reason = "dataset_validation_failed"
+        task.finished_at = utcnow()
+        session.flush()
+    ctx.pipelines.advance()
+    current = client.get(f"/api/v1/pipelines/{pipeline_id}").json()
+    assert current["status"] == "failed"
+    assert current["stages"][0]["status"] == "failed"
+    assert current["stages"][1]["status"] == "cancelled"
+    assert current["stages"][2]["status"] == "cancelled"
+    assert current["failure_reason"] == "dataset_validation_failed"
+
+
 def test_pipeline_cancel(client, ctx):
     created = client.post(
         "/api/v1/pipelines",
