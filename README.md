@@ -4,7 +4,9 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 技术栈：**FastAPI + SQLite + Redis + Ray + ultralytics YOLO**；前端 **Vue 3 + Vite + TypeScript + Element Plus + ECharts**。
 
-> 目标不是做一个“大而全”的 MLOps 平台，而是把训练任务的生命周期、资源回收、心跳、日志与指标这些**真正容易出错的地方**做完整、可演示、可测试。
+> 目标不是做一个“大而全”的 MLOps 平台，而是把训练任务的生命周期、资源回收、心跳、日志、指标，以及 P2 要求的流水线、资产和 Webhook 这些**真正容易出错的地方**做完整、可演示、可测试。
+
+**当前状态**：P0 / P1 全部完成；P2 四项高阶能力（多节点模拟、预处理 → 训练 → 评估流水线、数据集与模型产物、状态 Webhook）也已编码实现，并通过真实 Ray 训练、真实 HTTP 回调完成验收。
 
 ---
 
@@ -16,46 +18,57 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 - [快速开始](#快速开始)
 - [任务生命周期](#任务生命周期)
 - [核心设计](#核心设计)
+- [P2 高阶能力实现](#p2-高阶能力实现)
 - [HTTP 接口](#http-接口)
 - [配置项](#配置项)
 - [测试与验收](#测试与验收)
-- [P2 设计](#p2-设计)
 - [已知边界](#已知边界)
 - [第三方资产与许可](#第三方资产与许可)
+- [仓库结构](#仓库结构)
 
 ---
 
 ## 功能概览
 
-### P0
+### P0（必做）
 
 | 能力 | 实现 |
 | --- | --- |
 | 任务提交 / 分页查询 / 详情 / 取消 | `POST/GET /api/v1/tasks`，`GET /api/v1/tasks/{id}`，`POST /api/v1/tasks/{id}/cancel` |
 | CPU 资源管控与排队 | SQLite 分配记录 + 1 CPU 粒度调度；资源不足保持 `pending`，释放后自动派发 |
-| 任务状态流转 | `pending / running / succeeded / failed / cancelled`；正常退出码 0 = 成功，非 0 = 失败 |
+| 5 种任务状态 | `pending / running / succeeded / failed / cancelled`；退出码 0 = 成功，非 0 = 失败 |
 | Worker 心跳与僵死检测 | worker 每 4s 回调 API；超过 25s 无心跳由 watchdog 终止并回收 CPU |
 | 最大运行时长 | 每个任务独立 `max_runtime_seconds`，watchdog 到点强制终止并标记失败 |
 | 日志持久化 + 增量读取 | 每个任务一个 UTF-8 日志文件；按字节 offset 读取；额外提供 SSE 流 |
 | 元数据持久化 | SQLite（WAL）保存任务、节点、资源分配、指标、采样和事件；API 重启后恢复运行中的 Ray actor |
-| 前端 4 个页面 | 集群总览、任务列表、提交任务、任务详情 & 日志 |
+| 前端 4 个 P0 页面 | 集群总览、任务列表、提交任务、任务详情 & 日志 |
 | 日志终端 | 虚拟滚动、自动滚动/暂停、关键词高亮、复制、下载完整日志 |
 | 集群总览 | CPU 卡片、节点表、CPU 占用进度条、主机真实负载、队列/配额/服务状态 |
 
-### P1
+### P1（加分）
 
 | 能力 | 实现 |
 | --- | --- |
 | 优先级调度 | `priority 0–100`，高优先级先调度；未实现抢占（题目中可选） |
-| 抢占（可选） | 未实现；设计上可通过终止低优先级任务并重排队实现 |
 | YOLO 指标 | Ultralytics `on_fit_epoch_end` 回调采集 loss / mAP / precision / recall / lr；存 SQLite；前端 ECharts 折线图 |
 | 失败自动重试 | `max_retries` 0–5；worker 异常、非 0 退出、启动失败可自动重试；超时/心跳超时/手动取消不重试 |
-| 单用户 CPU 配额 | `LITETRAIN_USER_CPU_QUOTA`；资源服务同时检查节点空闲量和用户已用量 |
+| 单用户 CPU 配额 | `LITETRAIN_USER_CPU_QUOTA`；同时检查节点空闲量和用户已用量 |
 | 资源采样 | worker 随心跳上报进程树 CPU% / RSS / 进程数；任务级时间序列 |
 | 日志关键词高亮 | 终端内搜索高亮，不改变原始日志 |
 | 浏览器通知 | 可选开启；任务变为终态时通过 Notification API 通知 |
 | 深色模式 | Element Plus dark + 自定义主题变量；保存到 localStorage |
 | 日志虚拟滚动 | 固定行高窗口化渲染，最多保留最近 25,000 行，避免大日志卡顿 |
+
+### P2（高阶方案，已实现）
+
+| 能力 | 实现 |
+| --- | --- |
+| 多节点集群模拟 | 1–8 个逻辑节点，节点总容量不超过平台 CPU 预算；节点上线/离线，按节点空闲容量和最低利用率调度 |
+| 预处理 → 训练 → 评估流水线 | 三条固定阶段，每阶段是普通 CPU Task；前一阶段成功后自动创建下一阶段；失败/取消终止后续阶段；API 重启后续跑 |
+| 数据集管理 | 内置 COCO128 + ZIP 上传、YAML 校验、图片/标签统计、版本注册、原始归档下载、软删除 |
+| 模型产物管理 | 扫描 `best.pt / last.pt / results.csv / args.yaml`，记录大小与 SHA-256，按任务/流水线查询并从 Web 下载 |
+| 状态 Webhook | 注册 endpoint + 事件订阅；事务性 outbox；HMAC-SHA256 签名；指数退避重试；投递记录与手动测试 |
+| 新增 Web 页面 | `训练流水线`、`数据与产物`（数据集 / 产物 / Webhooks 三个 tab）；总览页增加多节点模拟和节点上下线操作 |
 
 ### 额外实现
 
@@ -65,54 +78,73 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 - **Redis 降级**：Redis 不可用时使用进程内调度锁；Redis 在线时使用分布式短锁和事件 pub/sub。
 - **运行事件时间线**：调度、启动、重试、心跳恢复、取消、完成均可追溯。
 - **自动资源回收**：成功、失败、超时、心跳超时、取消、API 重启对账都会释放过期 allocation。
+- **多节点容量碎片化保护**：任务必须能落在单个节点上；提交阶段直接返回 422，不会无限排队。
+- **Webhook 本地接收器**：`scripts/webhook_receiver.py`，无额外依赖，可直接演示签名头与 JSON body。
 
 ---
 
 ## 界面截图
 
-### 集群总览
+### 集群总览（双节点模拟，两个任务运行中，一个任务排队）
 
 ![集群总览](docs/screenshots/overview.png)
 
-### 任务列表
-
-![任务列表](docs/screenshots/tasks.png)
-
-### 提交任务
-
-![提交任务](docs/screenshots/submit.png)
-
-### 任务详情与日志
+### 任务详情与训练指标
 
 ![任务详情](docs/screenshots/detail.png)
 
-### 队列与实时状态
+### 训练流水线
 
-![队列状态](docs/screenshots/queue.png)
+![训练流水线](docs/screenshots/pipelines.png)
+
+### 数据与产物
+
+![数据与产物](docs/screenshots/assets.png)
+
+### 模型产物下载
+
+![模型产物](docs/screenshots/artifacts.png)
+
+### 多节点拓扑模拟
+
+![多节点模拟](docs/screenshots/topology.png)
+
+### Webhook 与投递记录
+
+![Webhook](docs/screenshots/webhooks.png)
+
+更多截图：任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)。
 
 > 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
+
 ---
 
 ## 架构
 
 ```mermaid
 flowchart LR
-    UI["Vue 3 Web UI<br/>Element Plus · ECharts"] -->|REST / SSE| API["FastAPI<br/>tasks · logs · metrics · cluster"]
-    API --> DB[("SQLite WAL<br/>tasks · nodes · allocations<br/>events · metrics · samples")]
+    UI["Vue 3 Web UI<br/>Element Plus · ECharts"] -->|REST / SSE| API["FastAPI<br/>tasks · logs · metrics · cluster<br/>pipelines · datasets · artifacts · webhooks"]
+    API --> DB[("SQLite WAL<br/>tasks · nodes · allocations · events<br/>pipelines · datasets · artifacts · webhooks")]
     API --> FILES[("Per-task log files<br/>data/logs/{task_id}.log")]
+    API --> ASSETS[("data/datasets · data/runs<br/>local artifact store")]
     API --> REDIS[("Redis<br/>scheduler lock<br/>event pub/sub")]
     SCHED["Scheduler thread<br/>claim · dispatch · watchdog"] --> DB
     SCHED --> REDIS
+    SCHED --> COORD["Pipeline coordinator<br/>preprocess → train → evaluate"]
+    COORD --> DB
     SCHED --> EXEC["ExecutionManager"]
     EXEC -->|preferred| RAY["Ray head<br/>2.60, localhost"]
-    RAY --> ACTOR["Detached TrainingActor<br/>per task attempt · num_cpus"]
-    ACTOR --> WORKER["YOLO CPU worker<br/>subprocess"]
+    RAY --> ACTOR["Detached worker actor<br/>per task attempt · num_cpus"]
+    ACTOR --> WORKER["YOLO CPU worker<br/>train / preprocess / evaluate"]
     WORKER --> ULTRA["ultralytics YOLOv8n<br/>coco128 · CPU"]
     WORKER -->|stdout/stderr| FILES
     WORKER -->|heartbeat + metrics| API
     EXEC -->|fallback| LOCAL["Local subprocess"]
     LOCAL --> WORKER
-    UI -->|offset polling| FILES
+    DISP["Webhook dispatcher<br/>outbox · HMAC · retries"] --> DB
+    DISP -->|HTTP POST| HOOK["External receiver"]
+    API -. enqueue delivery in task transaction .-> DB
+    UI -->|offset polling / SSE| FILES
 ```
 
 ### 为什么是 Ray Core detached actor，而不是只在 API 进程内跑训练？
@@ -126,19 +158,27 @@ flowchart LR
 
 | 路径 | 作用 |
 | --- | --- |
-| `backend/app/services/scheduler.py` | 调度、超时/心跳 watchdog、状态机、取消、重启恢复 |
-| `backend/app/services/resources.py` | CPU 账本、用户配额、集群快照 |
-| `backend/app/services/executors.py` | Ray detached actor / 本地子进程执行后端 |
-| `backend/app/services/ray_actor.py` | 在 Ray actor 中启动并监管训练 worker |
-| `backend/app/training/worker.py` | YOLO CPU 训练、心跳、资源采样、指标上报、原子 result |
+| `backend/app/services/scheduler.py` | 调度、超时/心跳 watchdog、状态机、取消、重启恢复、流水线协调入口 |
+| `backend/app/services/resources.py` | CPU 账本、多节点拓扑、用户配额、集群快照 |
+| `backend/app/services/pipelines.py` | 三阶段流水线创建、推进、取消、产物衔接 |
+| `backend/app/services/datasets.py` | 内置数据集注册、ZIP 导入、YAML 解析、统计 |
+| `backend/app/services/artifacts.py` | run 目录扫描、SHA-256、产物登记与安全下载 |
+| `backend/app/services/webhooks.py` | endpoint CRUD、outbox 入队、HMAC 签名、重试 dispatcher |
+| `backend/app/services/executors.py` | Ray detached actor / 本地子进程执行后端；按阶段生成命令 |
+| `backend/app/training/worker.py` | train / preprocess / evaluate、心跳、资源采样、指标上报、原子 result |
 | `backend/app/services/logs.py` | 独立日志文件、ANSI 清理、offset 增量读取 |
 | `backend/app/services/tasks.py` | 任务 CRUD、队列位置、指标/事件查询 |
 | `backend/app/api/tasks.py` | 任务 API + SSE |
+| `backend/app/api/pipelines.py` | 流水线 API |
+| `backend/app/api/assets.py` | 数据集/产物 API |
+| `backend/app/api/webhooks.py` | Webhook API |
 | `backend/app/api/internal.py` | worker 心跳和指标内部接口 |
-| `frontend/src/views/OverviewView.vue` | 集群总览 |
+| `frontend/src/views/OverviewView.vue` | 集群总览、多节点拓扑对话框、节点上下线 |
 | `frontend/src/views/TaskListView.vue` | 任务列表、筛选、分页、取消 |
 | `frontend/src/views/TaskSubmitView.vue` | 任务表单与命令预览 |
 | `frontend/src/views/TaskDetailView.vue` | 详情、终端、指标、事件 |
+| `frontend/src/views/PipelinesView.vue` | 流水线列表、创建、阶段进度、详情抽屉 |
+| `frontend/src/views/AssetsView.vue` | 数据集 / 产物 / Webhooks |
 | `frontend/src/components/LogTerminal.vue` | SSE + 增量轮询 + 虚拟滚动 + 高亮 |
 | `frontend/src/components/MetricsPanel.vue` | YOLO/资源折线图 |
 
@@ -232,6 +272,7 @@ ray start --head --num-cpus=8 --port=6380 `
 - API：<http://127.0.0.1:8000>
 - Swagger：<http://127.0.0.1:8000/docs>
 - 健康检查：<http://127.0.0.1:8000/healthz>
+- 首次启动会自动建表、注册内置 COCO128 数据集并创建默认节点。
 
 ### 5. 启动前端（开发模式）
 
@@ -294,6 +335,26 @@ npm run dev
 4. 在任务详情页观察日志与指标；约 20–60 秒可看到 `succeeded`。
 5. 回到总览可看到 CPU 分配从 0 恢复为 0，资源已释放。
 
+### 9. 演示 P2
+
+**多节点模拟**：总览页 → 节点资源 → “多节点模拟”，输入 2 个节点各 4 CPU，应用后提交两个 3 CPU 任务，可看到两个节点各占 3/4。
+
+**流水线**：侧边栏 → “训练流水线” → 新建流水线，选择 `coco128.yaml` 或上传的数据集，阶段会依次执行并自动登记 `best.pt`。
+
+**数据集上传**：侧边栏 → “数据与产物” → “导入数据集”，上传包含 YOLO `dataset.yaml`、images、labels 的 zip。
+
+**Webhook**：
+
+```powershell
+# 终端 1：本地接收器（不需要额外依赖）
+.\.venv\Scripts\python scripts\webhook_receiver.py --port 9099
+
+# UI：数据与产物 → Webhooks → 新建 Webhook
+# URL 填 http://127.0.0.1:9099/hook，事件选 task.succeeded / pipeline.succeeded
+```
+
+接收器会打印 `X-LiteTrain-Event / Delivery / Signature / Timestamp` 和 JSON body。
+
 ---
 
 ## 任务生命周期
@@ -316,7 +377,7 @@ stateDiagram-v2
 
 1. `POST /tasks` 写入 SQLite，状态 `pending`，创建 `data/logs/{id}.log` 和 `data/runs/{id}/result.json` 路径。
 2. Scheduler 每 1s 拿 Redis 短锁；按 `priority DESC, submitted_at ASC` 扫描 pending。
-3. 资源足够时创建 `ResourceAllocation(active)`，状态原子更新为 `running`。
+3. 资源足够时选择 online 节点，创建 `ResourceAllocation(active)`，状态原子更新为 `running`。
 4. `ExecutionManager` 创建 Ray detached actor（`num_cpus = task.cpu_cores`），actor 启动 `python -m app.training.worker` 子进程。
 5. Worker：
    - 启动心跳线程（每 4s）；
@@ -326,11 +387,20 @@ stateDiagram-v2
 6. Scheduler 观察到 `result.json`：exit 0 → `succeeded`，非 0 → `failed`。
 7. 释放 allocation，清理 actor；如有下一次排队任务，下一 tick 自动调度。
 
+### 流水线中的任务
+
+每个流水线阶段仍然走上面同一套 Task 生命周期。区别是：
+
+- 阶段 Task 由 coordinator 在资源调度前创建；
+- 阶段 Task 成功后，coordinator 创建下一阶段 Task；
+- 阶段失败/取消时，pipeline 终止，后续阶段标记 `cancelled`；
+- 所有阶段共享同一条日志、心跳、指标和资源回收路径。
+
 ### 取消
 
 - pending：直接标 cancelled，无 allocation。
 - running：`ExecutionManager.stop` 终止 worker 进程树（Ray actor 的 `stop` + PID 兜底）→ 释放 allocation → 标 cancelled。
-- 也可以取消排队任务，使其不占用队首。
+- 流水线取消：先取消当前阶段 Task，再把 pipeline 和未执行阶段标记 `cancelled`。
 
 ### 超时与僵死
 
@@ -357,7 +427,8 @@ stateDiagram-v2
   - 有 `result.json` 的运行任务直接结算；
   - PID/actor 尚在的运行任务重新附着，并刷新心跳窗口；
   - 找不到 worker 的运行任务标记失败并按规则重试；
-  - 为非 running 任务清理孤儿 allocation。
+  - 为非 running 任务清理孤儿 allocation；
+  - 流水线 coordinator 在下一个 tick 继续推进未完成阶段。
 - **已实测**：运行任务的 4 CPU allocation 在 API 重启后仍然存在，worker 继续训练并成功完成。
 
 ---
@@ -368,10 +439,19 @@ stateDiagram-v2
 
 - 调度只承认两种资源事实：节点总 CPU 和 active allocation 之和。
 - 调度时同时检查：
-  - `node.total - SUM(active.cpus)`；
-  - `user_quota - SUM(active.cpus for owner)`。
-- 任务申请 CPU 大于节点或用户配额时在提交阶段直接 422。
+  - 某节点 `node.total - SUM(active.cpus)` 是否满足；
+  - `user_quota - SUM(active.cpus for owner)` 是否满足。
+- 任务申请 CPU 必须能落在**单个 online 节点**上；超过最大节点容量时提交阶段直接 422。
+- 多节点拓扑变更在无 active allocation 时进行，且节点总容量不得超过 `LITETRAIN_TOTAL_CPUS`。
 - 使用 SQLite 事务 + `running` 状态检查防止同一任务双启动；Redis 短锁避免多 API 实例同时调度。
+
+### 多节点模拟
+
+- `Node` 表持久化逻辑节点；节点有 `online/offline`、总 CPU、最近心跳和主机名。
+- 拓扑替换会保留历史分配记录，旧节点被标记 offline；无历史分配的旧节点直接删除。
+- Scheduler 的 `choose_node` 在 online 节点中选择满足容量、用户配额且当前利用率最低的节点。
+- 任务仍由本机 Ray head 执行；模拟的是**控制面资源账本和多节点调度决策**，不是跨物理机的 Ray worker。
+- 节点下线前检查 active allocation；带任务节点禁止直接下线。重新上线也检查全局 CPU 预算，避免超过 Ray 实际 capacity。
 
 ### 日志
 
@@ -381,7 +461,6 @@ stateDiagram-v2
   - `start_offset` / `next_offset` / `file_size` / `eof`。
 - 前端初始只拉取 128KB，之后通过 SSE 增量接收；SSE 断开自动退回 offset 轮询。
 - 终端虚拟化：只渲染视口内行，固定行高 22px，最多保留 25,000 行。
-- 前端“复制”为已加载内容；下载按钮返回完整原始日志。
 
 ### 指标
 
@@ -392,6 +471,7 @@ stateDiagram-v2
   - `metrics/mAP50(B)`, `metrics/mAP50-95(B)`, `metrics/precision(B)`, `metrics/recall(B)`
   - `lr/pg0` 等
 - 前端按 epoch 绘制 loss、mAP/precision/recall、CPU 资源曲线。
+- 评估阶段同样复用指标接口，`evaluate` Task 的最终指标可在任务详情/产物中查看。
 
 ### Ray 与本地降级
 
@@ -401,9 +481,57 @@ stateDiagram-v2
 
 ### 为什么用 SQLite 而不是 Postgres？
 
-- 作业要求明确列出 SQLite；本项目是单节点演示，SQLite + WAL 足以支撑每秒级调度。
+- 作业要求明确列出 SQLite；本项目是单机演示，SQLite + WAL 足以支撑每秒级调度。
 - 所有写入都使用短事务；查询/列表走索引。多 API 实例的调度互斥由 Redis 提供，但 SQLite 仍是单机数据库，不是分布式数据库。
-- P2 多节点方案会把元数据替换为 Postgres/MySQL，见下文。
+- 若部署真实多机、多 API 副本，应将元数据迁移到 Postgres/MySQL；见 [docs/p2-design.md](docs/p2-design.md) 的演进部分。
+
+---
+
+## P2 高阶能力实现
+
+完整设计与实现说明见 [docs/p2-design.md](docs/p2-design.md)。这里给出关键行为。
+
+### 1. 多节点集群模拟
+
+- 数据模型：`nodes` 表和 `resource_allocations.node_id` 已有；新增拓扑 API 与 UI。
+- 预算：所有 online 节点总 CPU ≤ `LITETRAIN_TOTAL_CPUS`；单任务 CPU 必须能放入一个节点。
+- 调度：选择满足容量的节点中当前利用率最低的，避免连续压满第一个节点。
+- 状态：节点可下线/上线；有 active allocation 的节点不能下线；上线可能导致预算超限时拒绝。
+- 验收：两个 4 CPU 节点上同时运行两个 3 CPU 任务，分别占用 3/4，合计 6/8。
+
+### 2. 预处理 → 训练 → 评估流水线
+
+- `pipelines` + `pipeline_stages` 保存状态；`PipelineStage.task_id` 关联普通 Task，**未修改 Task 既有 schema**。
+- 创建 pipeline 时只创建 preprocess Task；后续阶段由 scheduler tick 中的 coordinator 创建。
+- 阶段行为：
+  - `preprocess`：读取 YAML，校验 train/val，复制图片/标签子集，生成绝对路径安全的新 `dataset.yaml` 和 manifest；指标记录图片/标签数。
+  - `train`：现有 YOLO worker，使用生成的数据集。
+  - `evaluate`：用上一阶段 `runs/{task_id}/weights/best.pt` 执行 `YOLO.val()`，结果写回指标。
+- 失败/取消：当前阶段失败或取消后，pipeline 终止，后续阶段 `cancelled`；支持通过 `POST /pipelines/{id}/cancel` 取消。
+- API 重启：阶段 Task 和 pipeline 状态都在 DB，coordinator 在下一 tick 继续。
+- 验收：真实 Ray 三阶段执行成功；`best.pt` 约 6.2 MB，下载 HTTP 200；`pipeline.succeeded` webhook 实际投递 204。
+
+### 3. 数据集与产物
+
+- `datasets`：内置 COCO128 自动登记；ZIP 上传后安全解压、校验 YAML、统计图片/标签/类别、复制原始归档。
+- 上传后的 YAML 会被规范化：`path` 为绝对目录，文件名带 registry id，避免多个数据集同名冲突。
+- 数据集只做软删除；历史任务和产物保留。
+- `artifacts`：扫描每个 run 的 `weights/*.pt`、`results.csv`、`args.yaml`；计算 SHA-256 和大小，支持按 task/pipeline 查询。
+- 下载前校验路径位于 `runs` 目录内，避免路径穿越。
+- 验收：产物页列出 best/last/results/args；best.pt 下载 6,484,970 bytes。
+
+### 4. 状态 Webhook
+
+- 事件入队与 TaskEvent 在同一 SQLite 事务中完成（transactional outbox）。
+- 事件名：`task.submitted / task.running / task.succeeded / task.failed / task.cancelled / task.retry_scheduled / pipeline.created / pipeline.running / pipeline.succeeded / pipeline.failed / pipeline.cancelled / webhook.test`。
+- 投递头：
+  - `X-LiteTrain-Event`
+  - `X-LiteTrain-Delivery`（幂等键）
+  - `X-LiteTrain-Timestamp`
+  - `X-LiteTrain-Signature = HMAC-SHA256(secret, timestamp + "." + rawBody)`
+- 2xx 成功；非 2xx/超时按指数退避重试，`LITETRAIN_WEBHOOK_MAX_ATTEMPTS` 后标记 failed。
+- UI 可启用/禁用、发送测试、查看 endpoint 成功/失败/待投递数量和最近投递记录。
+- 验收：本地接收器收到 4 条 pipeline / task 成功事件，均返回 204，outbox 全部成功。
 
 ---
 
@@ -427,13 +555,48 @@ Base：`http://127.0.0.1:8000/api/v1`；完整 OpenAPI 在 `/docs`。
 | `GET` | `/tasks/{id}/events` | 事件时间线 |
 | `GET` | `/tasks/{id}/metrics` | YOLO series + 资源采样 + final metrics |
 
-### 集群
+### 集群与多节点
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/cluster/overview` | CPU/内存/队列/节点/配额/Ray/Redis |
+| `GET` | `/cluster/nodes` | 所有节点（含 offline） |
+| `POST` | `/cluster/nodes/topology` | 替换为模拟节点拓扑；`nodes: [{name,total_cpus}]` |
+| `PATCH` | `/cluster/nodes/{id}` | `online / offline`；带 active allocation 的节点不能下线 |
 | `GET` | `/cluster/health` | 健康检查 |
 | `GET` | `/version` | 版本、执行器、scheduler 后端信息 |
+
+### 流水线
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/pipelines` | 创建流水线并创建第一阶段 Task |
+| `GET` | `/pipelines` | 分页列表 |
+| `GET` | `/pipelines/{id}` | 阶段、任务、进度、产物 |
+| `POST` | `/pipelines/{id}/cancel` | 取消当前阶段及后续阶段 |
+
+### 数据集与产物
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/datasets` | 数据集注册表 |
+| `POST` | `/datasets/upload` | `multipart/form-data`：file/name/version/description |
+| `GET` | `/datasets/{id}` | 数据集详情 |
+| `GET` | `/datasets/{id}/download` | 下载原始 ZIP（内置数据集无归档时 404） |
+| `DELETE` | `/datasets/{id}` | 软删除 |
+| `GET` | `/artifacts` | 支持 `task_id` / `pipeline_id` / `kind` 过滤 |
+| `GET` | `/artifacts/{id}/download` | 下载权重/指标/配置 |
+
+### Webhooks
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/webhooks` | 注册 endpoint（URL/secret/events/active） |
+| `GET` | `/webhooks` | endpoint 列表 + 投递计数 |
+| `PATCH` | `/webhooks/{id}` | 启用/禁用 |
+| `DELETE` | `/webhooks/{id}` | 删除 endpoint 及投递记录 |
+| `POST` | `/webhooks/{id}/test` | 入队一条 `webhook.test` |
+| `GET` | `/webhooks/deliveries` | 最近投递，可按 `endpoint_id` 过滤 |
 
 ### Worker 内部回调
 
@@ -464,10 +627,26 @@ curl -X POST http://127.0.0.1:8000/api/v1/tasks \
     "max_retries": 0
   }'
 
-curl http://127.0.0.1:8000/api/v1/tasks?page=1&page_size=10
 curl "http://127.0.0.1:8000/api/v1/tasks/<id>/logs?offset=0&limit=32768"
-curl -N "http://127.0.0.1:8000/api/v1/tasks/<id>/logs/stream?offset=0"
 curl http://127.0.0.1:8000/api/v1/tasks/<id>/metrics
+
+# 模拟两个 4 CPU 节点
+curl -X POST http://127.0.0.1:8000/api/v1/cluster/nodes/topology \
+  -H "Content-Type: application/json" \
+  -d '{"nodes":[{"name":"sim-a","total_cpus":4},{"name":"sim-b","total_cpus":4}]}'
+
+# 创建三阶段流水线
+curl -X POST http://127.0.0.1:8000/api/v1/pipelines \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_dataset":"coco128.yaml",
+    "model":"yolov8n.pt",
+    "epochs":1,
+    "imgsz":64,
+    "batch_size":2,
+    "cpu_cores":3,
+    "max_images":8
+  }'
 ```
 
 ### 日志 offset 语义
@@ -485,7 +664,7 @@ curl http://127.0.0.1:8000/api/v1/tasks/<id>/metrics
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `LITETRAIN_DATABASE_URL` | `sqlite:///backend/data/platform.db` | 元数据库 |
-| `LITETRAIN_TOTAL_CPUS` | `8` | 平台逻辑 CPU 池 |
+| `LITETRAIN_TOTAL_CPUS` | `8` | 平台逻辑 CPU 池 / 多节点总预算 |
 | `LITETRAIN_USER_CPU_QUOTA` | `8` | 单用户并发 CPU 上限 |
 | `LITETRAIN_EXECUTION_MODE` | `auto` | `auto / ray / local` |
 | `LITETRAIN_RAY_GCS_ADDRESS` | `127.0.0.1:6380` | Ray head GCS |
@@ -497,6 +676,11 @@ curl http://127.0.0.1:8000/api/v1/tasks/<id>/metrics
 | `LITETRAIN_DEFAULT_MAX_RUNTIME_SECONDS` | `1800` | 表单默认超时 |
 | `LITETRAIN_WORKER_API_BASE` | `http://127.0.0.1:8000/api/v1` | worker 回调地址 |
 | `LITETRAIN_WORKER_PYTHON` | 当前解释器 | 实际训练用的 venv Python |
+| `LITETRAIN_PIPELINE_DEFAULT_MAX_IMAGES` | `24` | 流水线预处理默认图片上限 |
+| `LITETRAIN_WEBHOOK_MAX_ATTEMPTS` | `4` | Webhook 最大投递次数 |
+| `LITETRAIN_WEBHOOK_RETRY_BASE_SECONDS` | `2` | 首次退避基数，随后指数增长 |
+| `LITETRAIN_WEBHOOK_TIMEOUT_SECONDS` | `5` | 单次 HTTP 超时 |
+| `LITETRAIN_WEBHOOK_DISPATCHER_INTERVAL_SECONDS` | `1` | dispatcher 轮询周期 |
 | `LITETRAIN_SERVE_FRONTEND` | `true` | dist 存在时由 FastAPI 托管 |
 | `LITETRAIN_CORS_ORIGINS` | `http://localhost:5173,...` | 开发跨域白名单 |
 
@@ -513,7 +697,7 @@ cd backend
 ..\.venv\Scripts\python -m pytest
 ```
 
-结果：**19 passed**。测试覆盖：
+结果：**27 passed**。测试覆盖 P0/P1 + P2：
 
 - 创建、分页、状态筛选、ID/名称搜索；
 - 表单选项和命令预览；
@@ -525,9 +709,14 @@ cd backend
 - 正常退出成功；
 - 非 0 退出自动重试、二次失败终态；
 - 资源容量、用户配额与优先级队列位置；
-- 非法 CPU/缺失资产 422、缺失任务 404。
+- 非法 CPU/缺失资产 422、缺失任务 404；
+- **多节点拓扑、节点上下线、双节点负载均衡**；
+- **数据集 ZIP 导入、YAML 规范化、重复版本冲突、归档下载**；
+- **产物扫描、SHA-256、下载**；
+- **流水线三阶段自动推进、失败/取消、阶段产物衔接**；
+- **Webhook 事务入队、HMAC 签名、2xx 成功、失败重试、测试投递**。
 
-### 黑盒联调（可选）
+### 黑盒联调
 
 先启动 Ray、Redis、后端，再执行：
 
@@ -535,23 +724,35 @@ cd backend
 .\.venv\Scripts\python scripts\e2e_live.py
 ```
 
-它会实际提交 3 个任务，验证：
+它会实际提交 3 个任务，验证队列、SSE、取消、超时和自动派发。
 
-1. 6 CPU 长任务运行，4 CPU 高优先级任务排队；
-2. 集群返回 `allocated=6 / available=2`；
-3. SSE 能读到日志；
-4. 取消运行中任务，排队任务自动启动；
-5. 15s 超时任务被 watchdog 终止，allocation 降到 0。
+P2 端到端演示：
 
-本机实测结果：
+```powershell
+.\.venv\Scripts\python scripts\e2e_p2.py
+```
+
+它会注册 webhook、创建真实的预处理→训练→评估流水线、轮询状态、检查产物下载，并打印投递结果。本机实测：
 
 ```text
-queue evidence: allocated=6, available=2, pending=1, queue_position=1
-after cancel:    runner=running, allocated=4
-timeout evidence: status=failed, reason=runtime_timeout, runtime=15, allocated_after=4
-runner final:    status=succeeded, runtime=25
-metric series:   train/box_loss, metrics/mAP50(B), ...
-E2E OK
+pipeline: plb7d3e20732fd
+status: pending → running → succeeded
+preprocess succeeded · train succeeded · evaluate succeeded
+artifacts: best.pt 6484970 · last.pt 6484970 · results.csv · args.yaml
+download: 200 6484970 bytes
+webhook deliveries: pipeline.succeeded success 204, task.succeeded success 204 ×3
+PIPELINE E2E OK
+```
+
+### 多节点实测
+
+```text
+topology: sim-cpu-a 4 CPU, sim-cpu-b 4 CPU
+two 3-CPU tasks:
+  sim-cpu-a allocated=3 running=1
+  sim-cpu-b allocated=3 running=1
+aggregate: allocated=6 / 8
+third 3-CPU task: pending，排队位置 #1
 ```
 
 ### 重启恢复实测
@@ -570,32 +771,21 @@ LATER          status=succeeded runtime=91s
 
 最终截图位于 `docs/screenshots/`，使用 Playwright 驱动本机 Edge，对真实运行中的页面截图：
 
-- 浅色模式总览 / 列表 / 提交 / 详情；
-- 队列与运行中状态；
-- 深色模式。
-
----
-
-## P2 设计
-
-完整说明见 [docs/p2-design.md](docs/p2-design.md)。
-
-1. **多节点集群模拟**：Ray autoscaler 或静态 head+worker；节点通过 Redis/心跳注册；调度器以节点为维度计算可用 CPU，并允许通过 Ray custom resources 做 GPU/标签亲和。元数据迁移到 Postgres，API 无状态多副本。
-2. **流水线编排**：预处理 → 训练 → 评估由任务依赖 DAG 表达；每个阶段是一个可重试任务，产物通过版本化 URI 传递；调度器按 DAG 入度和资源同时满足时推进。
-3. **数据与模型管理**：对象存储（MinIO/S3）+ 元数据表；数据集版本、内容哈希、YAML spec；训练输出 run 目录/权重注册、预签名下载、保留策略。
-4. **Webhook**：状态事件先写 outbox（SQLite/Postgres），后台 dispatcher 做带 HMAC 签名的 HTTP 推送、指数退避、去重和失败死信；Webhook 配置按事件类型/任务过滤。
-
-这些设计在代码中预留了事件表、产物路径和节点抽象，但**未编码实现**，符合题目 P2 要求。
+- P0：总览 / 列表 / 提交 / 详情 / 排队 / 深色模式；
+- P2：流水线 / 数据集 / 产物 / Webhook / 多节点拓扑。
 
 ---
 
 ## 已知边界
 
-- **单节点**：当前只注册了一个本地节点；资源账本支持 node_id 字段，但 UI/调度默认单节点。
+- **多节点是控制面模拟**：节点是逻辑资源池，任务仍由本机 Ray head 执行；不是真正的跨物理机 Ray worker 集群。
+- **SQLite**：适合单机演示，不适合多 API 实例共享；真实多实例需迁移 Postgres 并加行级锁。
+- **流水线固定三阶段**：题目指定 preprocess → train → evaluate；没有通用 DAG 编辑器、分支或并行阶段。
 - **无鉴权/多租户**：题目是单用户演示；生产需要 OIDC/JWT、任务级权限和审计。
 - **无抢占**：优先级只影响尚未启动的任务；P1 的可选低优先级抢占未实现。
-- **SQLite**：适合单节点演示，不适合多 API 实例共享；P2 多节点需迁移到 Postgres。
-- **本地子进程模式**：在没有 Ray 时可用，但没有 Ray 的进程隔离和逻辑资源预留；平台仍按账本限制。
+- **数据集删除是软删除**：记录和原始归档保留；不做对象存储生命周期管理。
+- **Webhook 未做生产级 SSRF 防护**：只校验 http(s)；生产应增加内网/回环地址拦截、secret 加密和 dead-letter 重放。
+- **本地子进程模式**：没有 Ray 的进程隔离和逻辑资源预留；平台仍按账本限制。
 - **Windows**：使用 Redis 5 时必须 `protocol=2`；训练进程需要 `KMP_DUPLICATE_LIB_OK=TRUE`（执行器自动设置）；Ray 启动由 `scripts/start_ray.ps1` 处理环境变量。
 - **不嵌入第三方平台**：没有 Kubeflow/Cube Studio/Airflow 页面或 iframe。
 - **CPU-only**：worker 强制 `device=cpu`，Ray actor 仅申请 CPU 资源。
@@ -616,8 +806,9 @@ LATER          status=succeeded runtime=91s
 .
 ├─ backend/
 │  ├─ app/
-│  │  ├─ api/            # tasks, internal callbacks, cluster
-│  │  ├─ services/       # scheduler, resources, logs, executors, Ray actor
+│  │  ├─ api/            # tasks, internal, cluster, pipelines, assets, webhooks
+│  │  ├─ services/       # scheduler, resources, logs, executors, pipelines,
+│  │  │                  # datasets, artifacts, webhooks, Ray actor
 │  │  ├─ training/       # worker + command/asset resolution
 │  │  ├─ config.py
 │  │  ├─ database.py
@@ -625,19 +816,21 @@ LATER          status=succeeded runtime=91s
 │  │  ├─ schemas.py
 │  │  └─ main.py
 │  ├─ data/              # demo assets, logs, runs, SQLite
-│  ├─ tests/
+│  ├─ tests/             # P0/P1/P2 tests
 │  ├─ requirements.txt
 │  └─ pytest.ini
 ├─ frontend/
 │  ├─ src/
-│  │  ├─ views/          # 4 pages
+│  │  ├─ views/          # overview, tasks, submit, detail, pipelines, assets
 │  │  ├─ components/     # terminal, metrics, status
 │  │  ├─ layout/
 │  │  ├─ api/
 │  │  └─ router/
 │  ├─ vite.config.ts
 │  └─ package.json
-├─ scripts/              # setup / start / asset download / live e2e
-├─ docs/                 # screenshots, P2 design
+├─ scripts/              # setup / start / asset download / live e2e / P2 e2e / webhook receiver
+├─ docs/
+│  ├─ screenshots/       # P0 + P2 screenshots
+│  └─ p2-design.md       # P2 implementation + production evolution
 └─ README.md
 ```
