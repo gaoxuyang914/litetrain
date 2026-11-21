@@ -3,6 +3,13 @@
 These screenshots are captured from the real running application (FastAPI + Ray +
 Redis + Vite) with Playwright-driven Microsoft Edge at a 1440×1000 viewport.
 
+The current set is **v2.3 Operations Ledger**: a flat dark navigation rail, paper
+workspace, and the live cluster topology as the single visual anchor. The redesign
+was checked at 375 / 768 / 1280 widths (no horizontal overflow) and against the
+`deepseek-frontend-design` self-check: 16px body copy, 12px minimum UI labels,
+2px visible focus, and reduced-motion fallbacks. Main text/background token pairs
+measure 5.18:1–16.82:1.
+
 | File | Page / state |
 | --- | --- |
 | `overview.png` | Multi-node overview: two 4-CPU simulated nodes each running a 3-CPU task, one task queued |
