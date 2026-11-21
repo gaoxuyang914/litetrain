@@ -8,6 +8,8 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 **当前状态**：P0 / P1 全部完成；P2 四项高阶能力（多节点模拟、预处理 → 训练 → 评估流水线、数据集与模型产物、状态 Webhook）也已编码实现，并通过真实 Ray 训练、真实 HTTP 回调完成验收。
 
+> CPU 优化的落地路线、现状差距、里程碑和验收指标见 [docs/CPU_OPTIMIZATION_LANDING_PLAN.md](docs/CPU_OPTIMIZATION_LANDING_PLAN.md)。
+
 ---
 
 ## 目录
