@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+pytest-cache-files-*
 backend/tests/.tmp/
 backend/test-tmp/
 backend/.testtmp/
@@ -33,8 +34,6 @@ backend/data/assets/*.zip
 
 # Keep the YOLO demo weights and coco128 sample set in the repository so the
 # demo also works offline. Generated run artifacts and caches stay untracked.
-backend/data/datasets/**/*.cache
-pytest-cache-files-*
 
 # Frontend
 frontend/node_modules/
