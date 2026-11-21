@@ -10,11 +10,14 @@ import {
   Odometer,
   Plus,
   Refresh,
+  Share,
   Timer,
 } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 
 import { api } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge.vue'
+import type { NodeTopologyItem } from '@/types/p2'
 import type { ClusterOverview, Task } from '@/types/task'
 import {
   formatDuration,
@@ -29,6 +32,10 @@ const recentTasks = ref<Task[]>([])
 const loading = ref(true)
 const refreshing = ref(false)
 const error = ref<string | null>(null)
+const topologyOpen = ref(false)
+const topologyBusy = ref(false)
+const topologyDraft = ref<NodeTopologyItem[]>([])
+const nodeActionBusy = ref<string | null>(null)
 let timer: number | undefined
 
 const cpu = computed(() => overview.value?.cpu)
@@ -68,6 +75,78 @@ const lastSync = computed(() => {
   const parsed = parseDate(overview.value?.updated_at)
   return parsed ? parsed.toLocaleTimeString('zh-CN', { hour12: false }) : '—'
 })
+
+const onlineNodes = computed(
+  () => overview.value?.nodes.filter((node) => node.status === 'online') ?? [],
+)
+const cpuBudget = computed(() => overview.value?.cpu.budget ?? 8)
+const topologyTotal = computed(() =>
+  topologyDraft.value.reduce((sum, node) => sum + Number(node.total_cpus || 0), 0),
+)
+
+function openTopologyDialog() {
+  const existing = onlineNodes.value
+  if (existing.length) {
+    topologyDraft.value = existing.map((node) => ({ name: node.name, total_cpus: node.total_cpus }))
+  } else {
+    const half = Math.max(1, Math.floor(cpuBudget.value / 2))
+    topologyDraft.value = [
+      { name: 'sim-node-1', total_cpus: half },
+      { name: 'sim-node-2', total_cpus: Math.max(1, cpuBudget.value - half) },
+    ]
+  }
+  topologyOpen.value = true
+}
+
+function addTopologyRow() {
+  topologyDraft.value.push({
+    name: `sim-node-${topologyDraft.value.length + 1}`,
+    total_cpus: 1,
+  })
+}
+
+function removeTopologyRow(index: number) {
+  if (topologyDraft.value.length <= 1) return
+  topologyDraft.value.splice(index, 1)
+}
+
+async function applyTopology() {
+  if (!topologyDraft.value.length) return
+  if (topologyTotal.value > cpuBudget.value) {
+    ElMessage.warning(`模拟总容量不能超过平台预算 ${cpuBudget.value} CPU`)
+    return
+  }
+  if (topologyDraft.value.some((node) => !node.name.trim() || node.total_cpus < 1)) {
+    ElMessage.warning('每个节点都需要名称和至少 1 个 CPU 核')
+    return
+  }
+  topologyBusy.value = true
+  try {
+    await api.applyNodeTopology(
+      topologyDraft.value.map((node) => ({ name: node.name.trim(), total_cpus: node.total_cpus })),
+    )
+    ElMessage.success('模拟拓扑已应用，调度器将按节点 CPU 分配任务')
+    topologyOpen.value = false
+    await load(true)
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '应用拓扑失败')
+  } finally {
+    topologyBusy.value = false
+  }
+}
+
+async function toggleNode(node: any) {
+  nodeActionBusy.value = node.id
+  try {
+    await api.setNodeStatus(node.id, node.status === 'online' ? 'offline' : 'online')
+    ElMessage.success(`节点 ${node.name} 状态已更新`)
+    await load(true)
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '更新节点状态失败')
+  } finally {
+    nodeActionBusy.value = null
+  }
+}
 
 async function load(silent = false) {
   if (!silent) refreshing.value = true
@@ -248,7 +327,10 @@ onBeforeUnmount(() => {
               <h2><span class="head-index">01</span> 节点资源</h2>
               <p class="panel-caption">CPU 配额按逻辑核心分配，表中同时展示主机真实负载</p>
             </div>
-            <span class="tag-soft accent"><span class="dot"></span>{{ overview.nodes.length }} node</span>
+            <div class="panel-head-actions">
+              <span class="tag-soft accent"><span class="dot"></span>{{ onlineNodes.length }} online</span>
+              <el-button size="small" :icon="Share" @click="openTopologyDialog">多节点模拟</el-button>
+            </div>
           </div>
 
           <el-table :data="overview.nodes" class="node-table" row-key="id">
@@ -298,6 +380,18 @@ onBeforeUnmount(() => {
             <el-table-column label="运行任务" width="84" align="center">
               <template #default="{ row }">
                 <span class="task-count-pill">{{ row.running_tasks }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="76" align="center">
+              <template #default="{ row }">
+                <el-button
+                  size="small"
+                  text
+                  :loading="nodeActionBusy === row.id"
+                  @click="toggleNode(row)"
+                >
+                  {{ row.status === 'online' ? '下线' : '上线' }}
+                </el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -451,6 +545,39 @@ onBeforeUnmount(() => {
           </template>
         </el-table>
       </section>
+
+      <el-dialog v-model="topologyOpen" title="多节点集群模拟" width="560px">
+        <div class="topology-intro">
+          <p>
+            把平台的 <strong>{{ cpuBudget }} CPU</strong> 预算拆成多个逻辑节点，调度器会按节点空闲容量与负载分配任务。
+          </p>
+          <p>任务仍在本机 Ray 集群执行；该功能用于演示多节点资源账本、节点亲和与容量碎片化。</p>
+        </div>
+        <div class="topology-rows">
+          <div v-for="(node, index) in topologyDraft" :key="index" class="topology-row">
+            <span class="topology-index mono">{{ String(index + 1).padStart(2, '0') }}</span>
+            <el-input v-model="node.name" placeholder="节点名称" maxlength="60" />
+            <el-input-number v-model="node.total_cpus" :min="1" :max="cpuBudget" controls-position="right" />
+            <span class="topology-unit">CPU</span>
+            <el-button text :disabled="topologyDraft.length <= 1" @click="removeTopologyRow(index)">
+              移除
+            </el-button>
+          </div>
+        </div>
+        <el-button text :icon="Plus" @click="addTopologyRow">添加节点</el-button>
+        <div class="topology-summary">
+          <span>模拟总容量</span>
+          <strong class="mono" :class="{ overloaded: topologyTotal > cpuBudget }">
+            {{ topologyTotal }} / {{ cpuBudget }} CPU
+          </strong>
+        </div>
+        <template #footer>
+          <el-button @click="topologyOpen = false">取消</el-button>
+          <el-button type="primary" :loading="topologyBusy" @click="applyTopology">
+            应用拓扑
+          </el-button>
+        </template>
+      </el-dialog>
     </template>
   </div>
 </template>
@@ -888,6 +1015,79 @@ onBeforeUnmount(() => {
   background: var(--panel-soft);
   color: var(--text-muted);
   font-size: 9.5px;
+}
+
+.panel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.topology-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-soft);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.topology-intro strong {
+  color: var(--accent);
+  font-family: var(--mono);
+}
+
+.topology-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+
+.topology-row {
+  display: grid;
+  grid-template-columns: 24px minmax(120px, 1fr) 120px 34px 48px;
+  align-items: center;
+  gap: 7px;
+}
+
+.topology-index {
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.topology-unit {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.topology-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.topology-summary strong {
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.topology-summary strong.overloaded {
+  color: var(--red);
 }
 
 .node-policy span {

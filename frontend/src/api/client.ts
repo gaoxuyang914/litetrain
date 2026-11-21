@@ -13,6 +13,17 @@ import type {
   TaskOptions,
   TaskQuery,
 } from '@/types/task'
+import type {
+  Artifact,
+  Dataset,
+  NodeTopologyItem,
+  NodeTopologyResponse,
+  Pipeline,
+  PipelineCreatePayload,
+  PipelineListResponse,
+  WebhookDelivery,
+  WebhookEndpoint,
+} from '@/types/p2'
 
 export class ApiError extends Error {
   status: number | null
@@ -106,6 +117,112 @@ export const api = {
   async getTaskMetrics(taskId: string): Promise<TaskMetrics> {
     const { data } = await http.get<TaskMetrics>(`/tasks/${taskId}/metrics`)
     return data
+  },
+
+  async applyNodeTopology(nodes: NodeTopologyItem[]): Promise<NodeTopologyResponse> {
+    const { data } = await http.post<NodeTopologyResponse>('/cluster/nodes/topology', { nodes })
+    return data
+  },
+
+  async setNodeStatus(nodeId: string, status: 'online' | 'offline') {
+    const { data } = await http.patch(`/cluster/nodes/${nodeId}`, { status })
+    return data
+  },
+
+  async listPipelines(page = 1, pageSize = 10): Promise<PipelineListResponse> {
+    const { data } = await http.get<PipelineListResponse>('/pipelines', {
+      params: { page, page_size: pageSize },
+    })
+    return data
+  },
+
+  async getPipeline(pipelineId: string): Promise<Pipeline> {
+    const { data } = await http.get<Pipeline>(`/pipelines/${pipelineId}`)
+    return data
+  },
+
+  async createPipeline(payload: PipelineCreatePayload): Promise<Pipeline> {
+    const { data } = await http.post<Pipeline>('/pipelines', payload)
+    return data
+  },
+
+  async cancelPipeline(pipelineId: string): Promise<Pipeline> {
+    const { data } = await http.post<Pipeline>(`/pipelines/${pipelineId}/cancel`)
+    return data
+  },
+
+  async listDatasets(): Promise<Dataset[]> {
+    const { data } = await http.get<{ items: Dataset[]; total: number }>('/datasets')
+    return data.items
+  },
+
+  async uploadDataset(form: FormData): Promise<Dataset> {
+    const { data } = await http.post<Dataset>('/datasets/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300_000,
+    })
+    return data
+  },
+
+  async deleteDataset(datasetId: string): Promise<void> {
+    await http.delete(`/datasets/${datasetId}`)
+  },
+
+  datasetDownloadUrl(datasetId: string): string {
+    return `/api/v1/datasets/${datasetId}/download`
+  },
+
+  async listArtifacts(params: {
+    task_id?: string
+    pipeline_id?: string
+    kind?: string
+  } = {}): Promise<Artifact[]> {
+    const { data } = await http.get<{ items: Artifact[]; total: number }>('/artifacts', { params })
+    return data.items
+  },
+
+  artifactDownloadUrl(artifact: Artifact): string {
+    return artifact.download_url
+  },
+
+  async listWebhooks(): Promise<WebhookEndpoint[]> {
+    const { data } = await http.get<{ items: WebhookEndpoint[]; total: number }>('/webhooks')
+    return data.items
+  },
+
+  async createWebhook(payload: {
+    name: string
+    url: string
+    secret?: string
+    events: string[]
+    active: boolean
+  }): Promise<WebhookEndpoint> {
+    const { data } = await http.post<WebhookEndpoint>('/webhooks', payload)
+    return data
+  },
+
+  async updateWebhook(endpointId: string, active: boolean): Promise<WebhookEndpoint> {
+    const { data } = await http.patch<WebhookEndpoint>(`/webhooks/${endpointId}`, { active })
+    return data
+  },
+
+  async deleteWebhook(endpointId: string): Promise<void> {
+    await http.delete(`/webhooks/${endpointId}`)
+  },
+
+  async testWebhook(endpointId: string): Promise<{ accepted: boolean; delivery_id: string }> {
+    const { data } = await http.post<{ accepted: boolean; delivery_id: string }>(
+      `/webhooks/${endpointId}/test`,
+    )
+    return data
+  },
+
+  async listWebhookDeliveries(endpointId?: string): Promise<WebhookDelivery[]> {
+    const { data } = await http.get<{ items: WebhookDelivery[]; total: number }>(
+      '/webhooks/deliveries',
+      { params: { endpoint_id: endpointId, limit: 100 } },
+    )
+    return data.items
   },
 }
 

@@ -6,9 +6,11 @@ import {
   BellFilled,
   DataAnalysis,
   Document,
+  FolderOpened,
   MagicStick,
   Menu as MenuIcon,
   Moon,
+  Share,
   Sunny,
   Tickets,
 } from '@element-plus/icons-vue'
@@ -32,6 +34,8 @@ const navItems = [
   { name: 'overview', label: '集群总览', caption: 'CPU / 队列', icon: DataAnalysis, path: '/overview' },
   { name: 'tasks', label: '任务列表', caption: '提交与追踪', icon: Tickets, path: '/tasks' },
   { name: 'task-submit', label: '提交任务', caption: 'YOLO · CPU', icon: MagicStick, path: '/tasks/new' },
+  { name: 'pipelines', label: '训练流水线', caption: '预处理 → 评估', icon: Share, path: '/pipelines' },
+  { name: 'assets', label: '数据与产物', caption: '资产 · Webhook', icon: FolderOpened, path: '/assets' },
 ]
 
 const title = computed(() => {
@@ -230,7 +234,7 @@ onBeforeUnmount(() => {
       </main>
 
       <footer class="app-footer">
-        <span>LiteTrain 1.0 · CPU-only YOLO training control plane</span>
+        <span>LiteTrain 2.0 · CPU-only YOLO training control plane</span>
         <span class="mono">FastAPI · Redis · Ray · SQLite</span>
       </footer>
     </div>

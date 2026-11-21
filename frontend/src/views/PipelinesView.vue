@@ -1,0 +1,1151 @@
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import {
+  CircleClose,
+  Download,
+  Plus,
+  Refresh,
+  Share,
+  Timer,
+} from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+
+import { api } from '@/api/client'
+import StatusBadge from '@/components/StatusBadge.vue'
+import type { Artifact, Pipeline, PipelineCreatePayload } from '@/types/p2'
+import type { TaskOptions } from '@/types/task'
+import {
+  formatDate,
+  formatDuration,
+  isTerminal,
+  timeAgo,
+} from '@/utils/format'
+
+const router = useRouter()
+const options = ref<TaskOptions | null>(null)
+const pipelines = ref<Pipeline[]>([])
+const total = ref(0)
+const page = ref(1)
+const pageSize = ref(10)
+const loading = ref(true)
+const refreshing = ref(false)
+const error = ref<string | null>(null)
+const createOpen = ref(false)
+const creating = ref(false)
+const cancellingId = ref<string | null>(null)
+const detailOpen = ref(false)
+const detailLoading = ref(false)
+const detail = ref<Pipeline | null>(null)
+let timer: number | undefined
+
+const form = reactive<PipelineCreatePayload>({
+  name: '',
+  source_dataset: 'coco128.yaml',
+  model: 'yolov8n.pt',
+  epochs: 1,
+  imgsz: 96,
+  batch_size: 4,
+  workers: 0,
+  cpu_cores: 4,
+  priority: 50,
+  max_runtime_seconds: 600,
+  max_retries: 0,
+  max_images: 24,
+  notes: '',
+})
+
+const hasActive = computed(() => pipelines.value.some((item) => !isTerminal(item.status)))
+const stageDefinitions = [
+  { key: 'preprocess', label: '预处理', hint: '校验数据集 / 打包子集', index: '01' },
+  { key: 'train', label: '训练', hint: 'YOLOv8n · CPU', index: '02' },
+  { key: 'evaluate', label: '评估', hint: 'best.pt · val split', index: '03' },
+]
+
+const stageMeta: Record<string, { label: string; tone: string }> = {
+  waiting: { label: '等待前序', tone: 'waiting' },
+  pending: { label: '排队中', tone: 'pending' },
+  running: { label: '运行中', tone: 'running' },
+  succeeded: { label: '已完成', tone: 'succeeded' },
+  failed: { label: '失败', tone: 'failed' },
+  cancelled: { label: '已取消', tone: 'cancelled' },
+}
+
+function stageStatus(status: string) {
+  return stageMeta[status] ?? { label: status, tone: 'waiting' }
+}
+
+async function loadOptions() {
+  if (options.value) return
+  try {
+    const data = await api.getOptions()
+    options.value = data
+    form.model = data.models.includes(data.defaults.model) ? data.defaults.model : data.models[0] ?? data.defaults.model
+    form.source_dataset = data.datasets.includes(data.defaults.dataset)
+      ? data.defaults.dataset
+      : data.datasets[0] ?? data.defaults.dataset
+    form.cpu_cores = Math.min(
+      4,
+      data.limits.cpu_cores?.[1] ?? data.user_cpu_quota,
+    )
+    form.max_runtime_seconds = data.defaults.max_runtime_seconds
+  } catch {
+    // Keep the form defaults; the create operation surfaces the exact error.
+  }
+}
+
+async function load(silent = false) {
+  if (!silent) loading.value = true
+  refreshing.value = true
+  try {
+    const data = await api.listPipelines(page.value, pageSize.value)
+    pipelines.value = data.items
+    total.value = data.total
+    error.value = null
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '加载流水线失败'
+  } finally {
+    loading.value = false
+    refreshing.value = false
+  }
+}
+
+function openCreate() {
+  loadOptions()
+  createOpen.value = true
+}
+
+async function submitCreate() {
+  if (!form.model || !form.source_dataset) {
+    ElMessage.warning('请选择模型和数据源')
+    return
+  }
+  creating.value = true
+  try {
+    const pipeline = await api.createPipeline({
+      ...form,
+      name: form.name?.trim() || undefined,
+      notes: form.notes?.trim() || undefined,
+    })
+    ElMessage.success(`流水线 ${pipeline.id} 已创建，预处理阶段进入队列`)
+    createOpen.value = false
+    page.value = 1
+    await load(true)
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '创建流水线失败')
+  } finally {
+    creating.value = false
+  }
+}
+
+async function openDetail(pipeline: Pipeline) {
+  detailOpen.value = true
+  detailLoading.value = true
+  try {
+    detail.value = await api.getPipeline(pipeline.id)
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '加载流水线详情失败')
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+async function cancelPipeline(pipeline: Pipeline) {
+  try {
+    await ElMessageBox.confirm(
+      `取消流水线「${pipeline.name}」？当前阶段任务会被终止，后续阶段不会执行。`,
+      '取消流水线',
+      { confirmButtonText: '确认取消', cancelButtonText: '返回', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  cancellingId.value = pipeline.id
+  try {
+    await api.cancelPipeline(pipeline.id)
+    ElMessage.success('流水线已取消')
+    await load(true)
+    if (detail.value?.id === pipeline.id) {
+      detail.value = await api.getPipeline(pipeline.id)
+    }
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '取消失败')
+  } finally {
+    cancellingId.value = null
+  }
+}
+
+function openTask(taskId: string) {
+  router.push({ name: 'task-detail', params: { id: taskId } })
+}
+
+function openArtifact(artifact: Artifact) {
+  window.open(artifact.download_url, '_blank', 'noopener')
+}
+
+function stageTask(pipeline: Pipeline, key: string) {
+  return pipeline.stages.find((stage) => stage.stage_key === key) ?? null
+}
+
+function stageHint(pipeline: Pipeline, key: string) {
+  const stage = stageTask(pipeline, key)
+  if (!stage) return '未创建'
+  const meta = stageStatus(stage.status)
+  return stage.task ? `${meta.label} · ${formatDuration(stage.task.runtime_seconds)}` : meta.label
+}
+
+function pipelineConfigSummary(pipeline: Pipeline) {
+  const cfg = pipeline.config
+  return `${cfg.epochs}ep · ${cfg.imgsz}px · ${cfg.cpu_cores} CPU · ${cfg.max_images} imgs`
+}
+
+onMounted(async () => {
+  await Promise.all([load(), loadOptions()])
+  timer = window.setInterval(() => {
+    if (!document.hidden && (hasActive.value || pipelines.value.length === 0)) load(true)
+  }, 3000)
+})
+
+onBeforeUnmount(() => {
+  if (timer) window.clearInterval(timer)
+})
+</script>
+
+<template>
+  <div class="page pipelines-page">
+    <div class="page-head">
+      <div class="page-heading">
+        <span class="eyebrow">Orchestration</span>
+        <h1 class="page-title">训练流水线</h1>
+        <p class="page-subtitle">
+          预处理 → 训练 → 评估串行编排。每个阶段都是独立的 CPU Task，复用资源调度、心跳、日志、重试和失败回收。
+        </p>
+      </div>
+      <div class="page-actions">
+        <div class="auto-refresh">
+          <span class="refresh-dot" :class="{ live: hasActive }"></span>
+          <span>{{ hasActive ? '流水线执行中' : '自动刷新' }}</span>
+        </div>
+        <el-button :icon="Refresh" :loading="refreshing" circle title="刷新" @click="load(true)" />
+        <el-button type="primary" :icon="Plus" @click="openCreate">新建流水线</el-button>
+      </div>
+    </div>
+
+    <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
+
+    <section class="panel pipeline-guide">
+      <div class="guide-head">
+        <div>
+          <span class="soft-label">Pipeline anatomy</span>
+          <h2>一个流水线，三个可审计阶段</h2>
+        </div>
+        <span class="tag-soft accent"><span class="dot"></span>serial · resumable</span>
+      </div>
+      <div class="guide-stages">
+        <div v-for="(stage, index) in stageDefinitions" :key="stage.key" class="guide-stage">
+          <span class="guide-index mono">{{ stage.index }}</span>
+          <div>
+            <strong>{{ stage.label }}</strong>
+            <span>{{ stage.hint }}</span>
+          </div>
+          <span v-if="index < stageDefinitions.length - 1" class="guide-arrow">→</span>
+        </div>
+        <div class="guide-artifacts">
+          <span class="soft-label">Outputs</span>
+          <strong>dataset.yaml + best.pt</strong>
+          <span>自动登记到数据与产物页</span>
+        </div>
+      </div>
+    </section>
+
+    <div v-if="loading" class="pipeline-skeleton">
+      <div v-for="idx in 3" :key="idx" class="panel skeleton-pipeline"><el-skeleton :rows="4" animated /></div>
+    </div>
+
+    <div v-else-if="pipelines.length === 0" class="panel empty-pipeline">
+      <div class="empty-state">
+        <span class="empty-icon"><el-icon><Share /></el-icon></span>
+        <strong>还没有流水线</strong>
+        <span>用一个串行流水线验证预处理、训练和评估的自动衔接，以及阶段产物的下载。</span>
+        <el-button type="primary" plain size="small" @click="openCreate">创建第一条流水线</el-button>
+      </div>
+    </div>
+
+    <div v-else class="pipeline-list">
+      <article v-for="pipeline in pipelines" :key="pipeline.id" class="panel pipeline-card">
+        <div class="pipeline-card-head">
+          <div class="pipeline-title-block">
+            <div class="pipeline-title-row">
+              <StatusBadge :status="pipeline.status" />
+              <span class="pipeline-id mono">{{ pipeline.id }}</span>
+              <span class="pipeline-time">{{ timeAgo(pipeline.submitted_at) }}</span>
+            </div>
+            <h2>{{ pipeline.name }}</h2>
+            <div class="pipeline-meta">
+              <span>{{ pipeline.config.source_dataset }}</span>
+              <span>{{ pipeline.config.model }}</span>
+              <span>{{ pipelineConfigSummary(pipeline) }}</span>
+            </div>
+          </div>
+          <div class="pipeline-head-actions">
+            <button class="row-action" type="button" title="查看阶段详情" @click="openDetail(pipeline)">
+              <el-icon><Share /></el-icon>
+            </button>
+            <el-button
+              v-if="!isTerminal(pipeline.status)"
+              size="small"
+              text
+              type="danger"
+              :loading="cancellingId === pipeline.id"
+              :icon="CircleClose"
+              @click="cancelPipeline(pipeline)"
+            >
+              取消
+            </el-button>
+          </div>
+        </div>
+
+        <div class="pipeline-progress-row">
+          <div class="pipeline-progress">
+            <span :style="{ width: `${Math.max(2, pipeline.progress)}%` }"></span>
+          </div>
+          <span class="mono">{{ pipeline.progress.toFixed(1) }}%</span>
+          <span v-if="pipeline.current_stage" class="current-stage">
+            current · {{ pipeline.current_stage }}
+          </span>
+        </div>
+
+        <div class="stage-row">
+          <div
+            v-for="(definition, index) in stageDefinitions"
+            :key="definition.key"
+            class="stage-tile"
+            :class="[stageStatus(stageTask(pipeline, definition.key)?.status ?? 'waiting').tone]"
+          >
+            <div class="stage-top">
+              <span class="stage-index mono">{{ definition.index }}</span>
+              <span class="stage-name">{{ definition.label }}</span>
+              <span class="stage-status">
+                {{ stageStatus(stageTask(pipeline, definition.key)?.status ?? 'waiting').label }}
+              </span>
+            </div>
+            <div class="stage-hint">
+              <template v-if="stageTask(pipeline, definition.key)?.task">
+                <button type="button" class="stage-task-link" @click="openTask(stageTask(pipeline, definition.key)!.task!.id)">
+                  <span class="mono">{{ stageTask(pipeline, definition.key)!.task!.id }}</span>
+                  <el-icon><Share /></el-icon>
+                </button>
+                <span>{{ stageHint(pipeline, definition.key) }}</span>
+              </template>
+              <span v-else>{{ stageHint(pipeline, definition.key) }}</span>
+            </div>
+            <span v-if="index < stageDefinitions.length - 1" class="stage-connector"></span>
+          </div>
+        </div>
+
+        <div v-if="pipeline.failure_reason" class="pipeline-failure">
+          <el-icon><Timer /></el-icon>
+          <span>{{ pipeline.failure_reason }}</span>
+        </div>
+
+        <div class="pipeline-foot">
+          <span>提交 {{ formatDate(pipeline.submitted_at) }}</span>
+          <span v-if="pipeline.started_at">开始 {{ timeAgo(pipeline.started_at) }}</span>
+          <span v-if="pipeline.finished_at">结束 {{ formatDate(pipeline.finished_at) }}</span>
+          <span v-if="pipeline.artifacts.length" class="artifact-inline">
+            <el-icon><Download /></el-icon>{{ pipeline.artifacts.length }} artifacts
+          </span>
+        </div>
+      </article>
+    </div>
+
+    <div v-if="total > pageSize" class="pipeline-pager">
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :page-sizes="[10, 20, 50]"
+        :total="total"
+        layout="sizes, prev, pager, next"
+        background
+        @current-change="load(true)"
+        @size-change="load(true)"
+      />
+    </div>
+
+    <el-dialog v-model="createOpen" title="新建训练流水线" width="720px" class="pipeline-dialog">
+      <div class="create-intro">
+        <el-icon><Share /></el-icon>
+        <span>创建后会依次执行 <strong>预处理 → 训练 → 评估</strong>。三阶段共享一套 CPU 与优先级配置。</span>
+      </div>
+      <el-form label-position="top" class="pipeline-form">
+        <div class="form-grid">
+          <el-form-item label="流水线名称" class="span-2">
+            <el-input v-model="form.name" maxlength="100" placeholder="留空自动生成" />
+          </el-form-item>
+          <el-form-item label="数据源">
+            <el-select v-model="form.source_dataset" class="full">
+              <el-option v-for="dataset in options?.datasets ?? []" :key="dataset" :label="dataset" :value="dataset" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="基础模型">
+            <el-select v-model="form.model" class="full">
+              <el-option v-for="model in options?.models ?? []" :key="model" :label="model" :value="model" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="Epochs">
+            <el-input-number v-model="form.epochs" :min="1" :max="20" controls-position="right" class="full" />
+          </el-form-item>
+          <el-form-item label="Image size">
+            <el-input-number v-model="form.imgsz" :min="64" :max="640" :step="32" controls-position="right" class="full" />
+          </el-form-item>
+          <el-form-item label="Batch">
+            <el-input-number v-model="form.batch_size" :min="1" :max="32" controls-position="right" class="full" />
+          </el-form-item>
+          <el-form-item label="预处理图片数上限">
+            <el-input-number v-model="form.max_images" :min="1" :max="128" controls-position="right" class="full" />
+          </el-form-item>
+          <el-form-item label="每阶段 CPU">
+            <el-input-number
+              v-model="form.cpu_cores"
+              :min="1"
+              :max="options?.limits.cpu_cores?.[1] ?? options?.user_cpu_quota ?? 8"
+              controls-position="right"
+              class="full"
+            />
+          </el-form-item>
+          <el-form-item label="优先级">
+            <el-input-number v-model="form.priority" :min="0" :max="100" :step="5" controls-position="right" class="full" />
+          </el-form-item>
+          <el-form-item label="最大运行时长（秒）">
+            <el-input-number v-model="form.max_runtime_seconds" :min="10" :max="86400" :step="60" controls-position="right" class="full" />
+          </el-form-item>
+          <el-form-item label="失败重试">
+            <el-input-number v-model="form.max_retries" :min="0" :max="5" controls-position="right" class="full" />
+          </el-form-item>
+          <el-form-item label="备注" class="span-2">
+            <el-input v-model="form.notes" maxlength="500" show-word-limit placeholder="可选：记录流水线目的" />
+          </el-form-item>
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="createOpen = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="submitCreate">创建并调度</el-button>
+      </template>
+    </el-dialog>
+
+    <el-drawer v-model="detailOpen" title="流水线详情" size="620px">
+      <div v-loading="detailLoading" class="pipeline-detail">
+        <template v-if="detail">
+          <div class="detail-summary">
+            <StatusBadge :status="detail.status" />
+            <h3>{{ detail.name }}</h3>
+            <span class="mono">{{ detail.id }}</span>
+            <p>{{ detail.config.source_dataset }} · {{ pipelineConfigSummary(detail) }}</p>
+          </div>
+          <div class="detail-progress">
+            <span :style="{ width: `${Math.max(2, detail.progress)}%` }"></span>
+          </div>
+          <div class="detail-stage-list">
+            <div v-for="stage in detail.stages" :key="stage.id" class="detail-stage">
+              <div class="detail-stage-heading">
+                <span class="soft-label">{{ stage.stage_key }}</span>
+                <span :class="['stage-pill', stageStatus(stage.status).tone]">
+                  {{ stageStatus(stage.status).label }}
+                </span>
+              </div>
+              <p v-if="stage.message">{{ stage.message }}</p>
+              <div v-if="stage.task" class="detail-task">
+                <div>
+                  <strong>{{ stage.task.name }}</strong>
+                  <span class="mono">{{ stage.task.id }} · {{ formatDuration(stage.task.runtime_seconds) }}</span>
+                </div>
+                <el-button size="small" text @click="openTask(stage.task.id)">打开任务 ↗</el-button>
+              </div>
+              <span v-else class="detail-waiting">该阶段尚未创建 Task</span>
+            </div>
+          </div>
+          <div class="detail-artifacts">
+            <span class="soft-label">Artifacts</span>
+            <div v-if="detail.artifacts.length" class="artifact-list">
+              <button v-for="artifact in detail.artifacts" :key="artifact.id" type="button" @click="openArtifact(artifact)">
+                <el-icon><Download /></el-icon>
+                <span>{{ artifact.name }}</span>
+                <small>{{ (artifact.size_bytes / 1024 / 1024).toFixed(1) }} MB</small>
+              </button>
+            </div>
+            <p v-else class="empty-copy">训练完成后，best.pt / results.csv 会自动登记。</p>
+          </div>
+        </template>
+      </div>
+    </el-drawer>
+  </div>
+</template>
+
+<style scoped>
+.pipelines-page {
+  gap: 16px;
+}
+
+.auto-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 8.5px;
+}
+
+.refresh-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.refresh-dot.live {
+  background: var(--accent);
+  animation: soft-pulse 2s ease-out infinite;
+}
+
+.pipeline-guide {
+  padding: 16px 20px;
+  background:
+    radial-gradient(620px 220px at 100% 0%, var(--accent-soft), transparent 70%),
+    var(--panel);
+}
+
+.guide-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.guide-head h2 {
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+}
+
+.guide-stages {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.guide-stage {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 170px;
+  flex: 1;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-soft);
+}
+
+.guide-index {
+  color: var(--accent);
+  font-size: 9px;
+}
+
+.guide-stage div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+}
+
+.guide-stage strong {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.guide-stage span:not(.guide-index):not(.guide-arrow) {
+  color: var(--text-muted);
+  font-size: 8.5px;
+}
+
+.guide-arrow {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 14px;
+}
+
+.guide-artifacts {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 190px;
+  flex: 0.9;
+  padding: 10px 12px;
+  border-left: 1px dashed var(--border-strong);
+}
+
+.guide-artifacts strong {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.guide-artifacts > span:last-child {
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.pipeline-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skeleton-pipeline {
+  min-height: 170px;
+  padding: 20px;
+}
+
+.empty-pipeline {
+  min-height: 280px;
+}
+
+.pipeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.pipeline-card {
+  padding: 16px 18px 12px;
+}
+
+.pipeline-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pipeline-title-block {
+  min-width: 0;
+}
+
+.pipeline-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pipeline-id {
+  color: var(--text-muted);
+  font-size: 8.5px;
+}
+
+.pipeline-time {
+  color: var(--text-muted);
+  font-size: 8.5px;
+}
+
+.pipeline-title-block h2 {
+  margin-top: 6px;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+}
+
+.pipeline-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 8.5px;
+}
+
+.pipeline-meta span + span::before {
+  content: '·';
+  margin-right: 7px;
+  color: var(--border-strong);
+}
+
+.pipeline-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.row-action {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.row-action:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.pipeline-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.pipeline-progress {
+  flex: 1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--panel-soft);
+}
+
+.pipeline-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), #48dfa9);
+  transition: width 0.5s ease;
+}
+
+.pipeline-progress-row > .mono {
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.current-stage {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.stage-row {
+  display: flex;
+  gap: 8px;
+}
+
+.stage-tile {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+}
+
+.stage-tile.running {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.stage-tile.succeeded {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+}
+
+.stage-tile.failed {
+  border-color: color-mix(in srgb, var(--red) 25%, var(--border));
+  background: var(--red-soft);
+}
+
+.stage-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stage-index {
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.stage-name {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.stage-status {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.stage-tile.running .stage-status {
+  color: var(--accent);
+}
+
+.stage-tile.succeeded .stage-status {
+  color: #16865f;
+}
+
+.stage-tile.failed .stage-status {
+  color: var(--red);
+}
+
+.stage-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 8.5px;
+}
+
+.stage-task-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.stage-task-link:hover {
+  text-decoration: underline;
+}
+
+.stage-task-link .el-icon {
+  font-size: 9px;
+}
+
+.stage-connector {
+  position: absolute;
+  top: 50%;
+  right: -10px;
+  z-index: 1;
+  width: 10px;
+  height: 1px;
+  background: var(--border-strong);
+}
+
+.pipeline-failure {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 9px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: var(--red-soft);
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.pipeline-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--border);
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.artifact-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--violet);
+}
+
+.pipeline-pager {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Dialog / drawer */
+.create-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-bottom: 16px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--text-muted);
+  font-size: 9.5px;
+  line-height: 1.6;
+}
+
+.create-intro .el-icon {
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.create-intro strong {
+  color: var(--accent);
+}
+
+.pipeline-form .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.pipeline-form .span-2 {
+  grid-column: span 2;
+}
+
+.full {
+  width: 100%;
+}
+
+.pipeline-detail {
+  min-height: 220px;
+}
+
+.detail-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-summary h3 {
+  color: var(--text);
+  font-size: 19px;
+  letter-spacing: -0.02em;
+}
+
+.detail-summary .mono {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.detail-summary p {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.detail-progress {
+  height: 5px;
+  margin: 14px 0;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--panel-soft);
+}
+
+.detail-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), #48dfa9);
+}
+
+.detail-stage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-stage {
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-soft);
+}
+
+.detail-stage-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stage-pill {
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 7.5px;
+}
+
+.stage-pill.running {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.stage-pill.succeeded {
+  background: rgba(22, 134, 95, 0.1);
+  color: #16865f;
+}
+
+.stage-pill.failed {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.stage-pill.pending {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.detail-stage p {
+  margin-top: 5px;
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 8.5px;
+}
+
+.detail-task {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--border);
+}
+
+.detail-task div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.detail-task strong {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.detail-task .mono {
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.detail-waiting {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 8.5px;
+}
+
+.detail-artifacts {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.artifact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.artifact-list button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-soft);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 9px;
+  text-align: left;
+}
+
+.artifact-list button:hover {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.artifact-list small {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 7.5px;
+}
+
+.empty-copy {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+@keyframes soft-pulse {
+  0% {
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  70% {
+    box-shadow: 0 0 0 4px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (max-width: 900px) {
+  .stage-row {
+    flex-direction: column;
+  }
+
+  .stage-connector {
+    display: none;
+  }
+
+  .guide-artifacts {
+    border-left: none;
+    padding-left: 0;
+  }
+
+  .pipeline-form .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pipeline-form .span-2 {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .pipeline-card {
+    padding: 14px;
+  }
+
+  .pipeline-card-head {
+    flex-direction: column;
+  }
+
+  .pipeline-title-block h2 {
+    font-size: 14px;
+  }
+
+  .pipeline-guide {
+    padding: 14px;
+  }
+
+  .guide-artifacts {
+    display: none;
+  }
+}
+</style>

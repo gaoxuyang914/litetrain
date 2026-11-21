@@ -36,6 +36,18 @@ const router = createRouter({
           component: () => import('@/views/TaskDetailView.vue'),
           meta: { title: '任务详情', eyebrow: 'Job detail' },
         },
+        {
+          path: 'pipelines',
+          name: 'pipelines',
+          component: () => import('@/views/PipelinesView.vue'),
+          meta: { title: '训练流水线', eyebrow: 'Pipelines' },
+        },
+        {
+          path: 'assets',
+          name: 'assets',
+          component: () => import('@/views/AssetsView.vue'),
+          meta: { title: '数据与产物', eyebrow: 'Assets' },
+        },
       ],
     },
     {

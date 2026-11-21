@@ -145,6 +145,7 @@ export interface NodeInfo {
 export interface ClusterOverview {
   cpu: {
     total: number
+    budget: number
     allocated: number
     available: number
     utilization_percent: number

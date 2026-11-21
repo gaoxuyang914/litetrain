@@ -142,7 +142,10 @@ async function loadOptions() {
       epochs: data.defaults.epochs,
       imgsz: data.defaults.imgsz,
       batch_size: data.defaults.batch_size,
-      cpu_cores: Math.min(data.defaults.cpu_cores, data.user_cpu_quota),
+      cpu_cores: Math.min(
+        data.defaults.cpu_cores,
+        data.limits.cpu_cores?.[1] ?? data.user_cpu_quota,
+      ),
       priority: data.defaults.priority,
       max_runtime_seconds: data.defaults.max_runtime_seconds,
       max_retries: data.defaults.max_retries,
