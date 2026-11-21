@@ -63,7 +63,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 | 能力 | 实现 |
 | --- | --- |
-| 多节点集群模拟 | 1–8 个逻辑节点，节点总容量不超过平台 CPU 预算；节点上线/离线，按节点空闲容量和最低利用率调度 |
+| 多节点集群模拟 | 1–8 个逻辑节点，节点总容量不超过平台 CPU 预算；节点上线/离线，按节点空闲容量和最低利用率调度；总览页提供实时拓扑、节点上的运行 Task 预览和主机负载 |
 | 预处理 → 训练 → 评估流水线 | 三条固定阶段，每阶段是普通 CPU Task；前一阶段成功后自动创建下一阶段；失败/取消终止后续阶段；API 重启后续跑 |
 | 数据集管理 | 内置 COCO128 + ZIP 上传、YAML 校验、图片/标签统计、版本注册、原始归档下载、软删除 |
 | 模型产物管理 | 扫描 `best.pt / last.pt / results.csv / args.yaml`，记录大小与 SHA-256，按任务/流水线查询并从 Web 下载 |
@@ -85,7 +85,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 ## 界面截图
 
-### 集群总览（双节点模拟，两个任务运行中，一个任务排队）
+### 集群总览（双节点模拟，实时拓扑 + 两个任务运行中 + 一个任务排队）
 
 ![集群总览](docs/screenshots/overview.png)
 
@@ -115,7 +115,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 更多截图：任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)。
 
-> 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
+> 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.2 Precision Console**：深色外框、实时集群拓扑、Jade/Citron/Copper 配色和任务 cockpit。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
 
 ---
 
