@@ -71,7 +71,7 @@ class AppContext:
         tasks = TaskService(settings, db, log_store, broker, datasets=datasets, quality=quality)
         artifacts = ArtifactService(settings, db)
         benchmark = BenchmarkService(settings, db)
-        pipelines = PipelineService(settings, db, log_store, broker, artifacts)
+        pipelines = PipelineService(settings, db, log_store, broker, artifacts, tasks=tasks)
         webhooks = WebhookService(settings, db)
         configure_max_attempts(settings.webhook_max_attempts)
         webhook_dispatcher = WebhookDispatcher(settings, db)

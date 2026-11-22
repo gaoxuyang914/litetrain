@@ -180,7 +180,7 @@ def test_webhook_enqueue_sign_and_deliver(client, ctx, monkeypatch, payload):
     assert client.get("/api/v1/webhooks").json()["total"] == 0
 
 
-def test_rerun_pipeline_creates_new_run(client):
+def test_rerun_pipeline_reuses_task_ids(client, ctx):
     payload = {
         "name": "rerun source",
         "source_dataset": "coco128.yaml",
@@ -197,13 +197,36 @@ def test_rerun_pipeline_creates_new_run(client):
     created = client.post("/api/v1/pipelines", json=payload)
     assert created.status_code == 201, created.text
     original = created.json()
-    rerun = client.post(f"/api/v1/pipelines/{original['id']}/rerun")
-    assert rerun.status_code == 201, rerun.text
-    cloned = rerun.json()
-    assert cloned["id"] != original["id"]
-    assert cloned["name"].endswith("· 重跑")
-    assert cloned["config"]["compute_threads"] == 2
-    assert cloned["config"]["cache_mode"] == "ram"
+    pipeline_id = original["id"]
+    first_task_id = original["stages"][0]["task"]["id"]
+    with ctx.db.session() as session:
+        task = session.get(Task, first_task_id)
+        pipeline = session.get(Pipeline, pipeline_id)
+        assert task is not None and pipeline is not None
+        task.status = "succeeded"
+        task.exit_code = 0
+        task.finished_at = utcnow()
+        pipeline.status = "succeeded"
+        pipeline.finished_at = utcnow()
+        stage = session.scalar(
+            select(PipelineStage).where(
+                PipelineStage.pipeline_id == pipeline_id,
+                PipelineStage.stage_key == "preprocess",
+            )
+        )
+        assert stage is not None
+        stage.status = "succeeded"
+        stage.finished_at = utcnow()
+        session.flush()
+
+    rerun = client.post(f"/api/v1/pipelines/{pipeline_id}/rerun")
+    assert rerun.status_code == 200, rerun.text
+    current = rerun.json()
+    assert current["id"] == pipeline_id
+    assert current["stages"][0]["task"]["id"] == first_task_id
+    assert current["stages"][0]["status"] == "pending"
+    assert current["stages"][1]["status"] == "waiting"
+    assert current["stages"][2]["status"] == "waiting"
 
 
 def test_topology_rejects_duplicate_node_names(client):
@@ -449,6 +472,42 @@ def test_pipeline_coordinator_serial_stages(client, ctx, payload):
     assert current["progress"] == 100.0 or current["progress"] > 99
     assert current["finished_at"] is not None
     assert current["stages"][2]["details"]["overall"]["map50"] == 0.5
+
+    rerun = client.post(f"/api/v1/pipelines/{pipeline_id}/rerun")
+    assert rerun.status_code == 200, rerun.text
+    rerun_state = rerun.json()
+    assert rerun_state["id"] == pipeline_id
+    assert rerun_state["stages"][0]["task"]["id"] == first_task_id
+    assert rerun_state["stages"][1]["task"]["id"] == train_task_id
+    assert rerun_state["stages"][2]["task"]["id"] == eval_task_id
+    assert rerun_state["stages"][0]["status"] == "pending"
+    assert rerun_state["stages"][1]["status"] == "waiting"
+    assert rerun_state["stages"][2]["status"] == "waiting"
+
+    with ctx.db.session() as session:
+        task = session.get(Task, first_task_id)
+        assert task is not None
+        task.status = "succeeded"
+        task.exit_code = 0
+        task.finished_at = utcnow()
+        session.flush()
+    ctx.pipelines.advance()
+    current = client.get(f"/api/v1/pipelines/{pipeline_id}").json()
+    assert current["stages"][1]["task"]["id"] == train_task_id
+    assert current["stages"][1]["status"] == "pending"
+    assert current["stages"][2]["status"] == "waiting"
+
+    with ctx.db.session() as session:
+        task = session.get(Task, train_task_id)
+        assert task is not None
+        task.status = "succeeded"
+        task.exit_code = 0
+        task.finished_at = utcnow()
+        session.flush()
+    ctx.pipelines.advance()
+    current = client.get(f"/api/v1/pipelines/{pipeline_id}").json()
+    assert current["stages"][2]["task"]["id"] == eval_task_id
+    assert current["stages"][2]["status"] == "pending"
 
     import shutil
 

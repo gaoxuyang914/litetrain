@@ -316,18 +316,17 @@ async function resumePipeline(pipeline: Pipeline) {
 async function rerunPipeline(pipeline: Pipeline) {
   try {
     await ElMessageBox.confirm(
-      `按「${pipeline.name}」的当前配置新建一条流水线？原流水线及历史记录会保留。`,
+      `在「${pipeline.name}」原流水线上重跑？阶段任务和 ID 保持不变，并按预处理 → 训练 → 评估顺序重新执行。`,
       '重跑流水线',
-      { confirmButtonText: '创建重跑', cancelButtonText: '返回', type: 'info' },
+      { confirmButtonText: '开始重跑', cancelButtonText: '返回', type: 'info' },
     )
   } catch {
     return
   }
   rerunningId.value = pipeline.id
   try {
-    const created = await api.rerunPipeline(pipeline.id)
-    ElMessage.success(`已创建重跑流水线 ${created.id}`)
-    page.value = 1
+    await api.rerunPipeline(pipeline.id)
+    ElMessage.success('流水线已重新入队，沿用原任务并按阶段顺序执行')
     await load(true)
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : '重跑流水线失败')

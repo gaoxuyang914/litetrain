@@ -636,6 +636,7 @@ stateDiagram-v2
   - `train`：现有 YOLO worker，使用生成的数据集。
   - `evaluate`：用上一阶段 `runs/{task_id}/weights/best.pt` 执行 `YOLO.val()`，结果写回指标。
 - 失败/取消：当前阶段失败或取消后，pipeline 终止，后续阶段 `cancelled`；支持通过 `POST /pipelines/{id}/cancel` 取消。
+- 重跑：`POST /pipelines/{id}/rerun` 在原流水线上重置阶段，复用原阶段 Task ID；只有前一阶段成功后，coordinator 才把下一个阶段任务重新置为 pending。
 - API 重启：阶段 Task 和 pipeline 状态都在 DB，coordinator 在下一 tick 继续。
 - 验收：真实 Ray 三阶段执行成功；`best.pt` 约 6.2 MB，下载 HTTP 200；`pipeline.succeeded` webhook 实际投递 204。
 
@@ -724,6 +725,7 @@ Base：`http://127.0.0.1:8000/api/v1`；完整 OpenAPI 在 `/docs`。
 | `POST` | `/pipelines` | 创建流水线并创建第一阶段 Task |
 | `GET` | `/pipelines` | 分页列表 |
 | `GET` | `/pipelines/{id}` | 阶段、任务、进度、产物 |
+| `POST` | `/pipelines/{id}/rerun` | 在原流水线上重跑，复用阶段任务 ID 并按顺序执行 |
 | `POST` | `/pipelines/{id}/resume` | 从最近成功阶段继续失败/取消的流水线 |
 | `POST` | `/pipelines/{id}/cancel` | 取消当前阶段及后续阶段 |
 

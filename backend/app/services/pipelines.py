@@ -33,7 +33,7 @@ from app.services.artifacts import ArtifactService
 from app.services.event_bus import EventBroker
 from app.services.logs import LogStore
 from app.services.manifests import RunManifestService
-from app.services.tasks import add_event, runtime_seconds
+from app.services.tasks import TaskService, add_event, runtime_seconds
 from app.services.webhooks import enqueue_pipeline_event
 from app.training.config import (
     TrainingAssetError,
@@ -68,12 +68,14 @@ class PipelineService:
         log_store: LogStore,
         broker: EventBroker,
         artifacts: ArtifactService,
+        tasks: TaskService | None = None,
     ) -> None:
         self.settings = settings
         self.db = db
         self.log_store = log_store
         self.broker = broker
         self.artifacts = artifacts
+        self.tasks = tasks
         self.manifests = RunManifestService(settings)
 
     # ------------------------------------------------------------------ helpers
@@ -440,6 +442,7 @@ class PipelineService:
     def advance(self) -> None:
         created_logs: list[tuple[str, str | None]] = []
         published: list[tuple[str, str, str]] = []
+        rerun_stages: list[tuple[str, str, str]] = []
         with self.db.session() as session:
             pipelines = session.scalars(
                 select(Pipeline)
@@ -451,9 +454,33 @@ class PipelineService:
                     result = self._advance_pipeline(session, pipeline)
                     created_logs.extend(result["created_logs"])
                     published.extend(result["published"])
+                    rerun_stages.extend(result.get("rerun_stages", []))
                 except Exception:
                     logger.exception("pipeline advance failed for %s", pipeline.id)
             session.flush()
+        for task_id, pipeline_id, stage_id in rerun_stages:
+            try:
+                if self.tasks is None:
+                    continue
+                self.tasks.rerun(task_id)
+                with self.db.session() as session:
+                    stage = session.get(PipelineStage, stage_id)
+                    pipeline = session.get(Pipeline, pipeline_id)
+                    if stage is None or pipeline is None:
+                        continue
+                    task = session.get(Task, task_id)
+                    config = json.loads(pipeline.config_json or "{}")
+                    if task is not None:
+                        task.max_runtime_seconds = int(
+                            config.get("max_runtime_seconds", task.max_runtime_seconds)
+                        )
+                        task.max_retries = int(config.get("max_retries", task.max_retries))
+                    stage.status = TaskStatus.PENDING.value
+                    pipeline.status = TaskStatus.PENDING.value
+                    pipeline.current_stage = stage.stage_key
+                    session.flush()
+            except Exception:
+                logger.exception("failed to rerun pipeline stage task %s", task_id)
         for task_id, pipeline_id in created_logs:
             try:
                 with self.db.session() as session:
@@ -469,16 +496,19 @@ class PipelineService:
     def _advance_pipeline(self, session, pipeline: Pipeline) -> dict[str, Any]:
         created_logs: list[tuple[str, str | None]] = []
         published: list[tuple[str, str, str]] = []
+        rerun_stages: list[tuple[str, str, str]] = []
         stages = session.scalars(
             select(PipelineStage)
             .where(PipelineStage.pipeline_id == pipeline.id)
             .order_by(PipelineStage.sequence.asc())
         ).all()
         if not stages:
-            return {"created_logs": created_logs, "published": published}
+            return {"created_logs": created_logs, "published": published, "rerun_stages": rerun_stages}
         old_status = pipeline.status
         for stage in stages:
             if stage.task_id:
+                if stage.status == "waiting":
+                    continue
                 task = session.get(Task, stage.task_id)
                 if task is None:
                     continue
@@ -560,6 +590,16 @@ class PipelineService:
                             pipeline_cfg=cfg,
                         )
                         created_logs.append((new_task.id, pipeline.id))
+                    elif next_stage.task_id is not None:
+                        if next_stage.status == "waiting":
+                            next_task = session.get(Task, next_stage.task_id)
+                            if next_task is not None and next_task.status in (
+                                TaskStatus.SUCCEEDED.value,
+                                TaskStatus.FAILED.value,
+                                TaskStatus.CANCELLED.value,
+                            ):
+                                rerun_stages.append((next_task.id, pipeline.id, next_stage.id))
+                                break
                 elif task.status in (TaskStatus.FAILED.value, TaskStatus.CANCELLED.value):
                     if pipeline.status not in (
                         TaskStatus.FAILED.value,
@@ -588,7 +628,7 @@ class PipelineService:
             enqueue_pipeline_event(session, pipeline, "pipeline.running", "Pipeline started")
             published.append(("pipeline.running", pipeline.id, "started"))
         session.flush()
-        return {"created_logs": created_logs, "published": published}
+        return {"created_logs": created_logs, "published": published, "rerun_stages": rerun_stages}
 
     def _fail_pipeline(self, session, pipeline: Pipeline, stages: list[PipelineStage], code: str, message: str) -> None:
         pipeline.status = TaskStatus.FAILED.value
@@ -854,37 +894,61 @@ class PipelineService:
         )
 
     def rerun(self, pipeline_id: str) -> PipelineOut:
+        """Rerun a terminal pipeline in place, reusing its stage task ids."""
+        if self.tasks is None:
+            raise PipelineError("task service is not configured", 500)
         with self.db.session() as session:
             pipeline = session.get(Pipeline, pipeline_id)
             if pipeline is None:
                 raise PipelineNotFound(pipeline_id)
+            if pipeline.status not in (
+                TaskStatus.SUCCEEDED.value,
+                TaskStatus.FAILED.value,
+                TaskStatus.CANCELLED.value,
+            ):
+                raise PipelineError("only finished pipelines can be rerun", 409)
+            stages = session.scalars(
+                select(PipelineStage)
+                .where(PipelineStage.pipeline_id == pipeline.id)
+                .order_by(PipelineStage.sequence.asc())
+            ).all()
+            if not stages or stages[0].task_id is None:
+                raise PipelineError("pipeline has no preprocess task to rerun", 409)
             config = json.loads(pipeline.config_json or "{}")
-            name = pipeline.name
-        payload = PipelineCreate(
-            name=f"{name} · 重跑"[:100],
-            source_dataset=config.get("source_dataset", "coco128.yaml"),
-            model=config.get("model", "yolov8n.pt"),
-            epochs=int(config.get("epochs", 1)),
-            imgsz=int(config.get("imgsz", 96)),
-            batch_size=int(config.get("batch_size", 4)),
-            workers=int(config.get("workers", 0)),
-            cpu_cores=int(config.get("cpu_cores", 4)),
-            compute_threads=config.get("compute_threads"),
-            cache_mode=config.get("cache_mode", "none"),
-            priority=int(config.get("priority", 50)),
-            max_runtime_seconds=int(config.get("max_runtime_seconds", 600)),
-            max_retries=int(config.get("max_retries", 0)),
-            max_images=int(config.get("max_images", 24)),
-            val_ratio=float(config.get("val_ratio", 0.2)),
-            seed=int(config.get("seed", 42)),
-            dedupe=bool(config.get("dedupe", True)),
-            eval_split="val",
-            eval_conf=float(config.get("eval_conf", 0.001)),
-            eval_iou=float(config.get("eval_iou", 0.6)),
-            eval_max_det=int(config.get("eval_max_det", 300)),
-            notes=config.get("notes"),
-        )
-        return self.create(payload)
+            first_stage = stages[0]
+            first_task_id = first_stage.task_id
+            for stage in stages:
+                stage.status = "waiting"
+                stage.started_at = None
+                stage.finished_at = None
+                stage.message = None
+            pipeline.status = TaskStatus.PENDING.value
+            pipeline.current_stage = first_stage.stage_key
+            pipeline.progress = 0.0
+            pipeline.failure_reason = None
+            pipeline.started_at = None
+            pipeline.finished_at = None
+            pipeline.submitted_at = utcnow()
+        self.tasks.rerun(first_task_id)
+        with self.db.session() as session:
+            pipeline = session.get(Pipeline, pipeline_id)
+            stage = session.scalar(
+                select(PipelineStage).where(
+                    PipelineStage.pipeline_id == pipeline_id,
+                    PipelineStage.stage_key == first_stage.stage_key,
+                )
+            )
+            task = session.get(Task, first_task_id)
+            if pipeline is None or stage is None or task is None:
+                raise PipelineError("pipeline rerun state could not be restored", 500)
+            task.max_runtime_seconds = int(config.get("max_runtime_seconds", task.max_runtime_seconds))
+            task.max_retries = int(config.get("max_retries", task.max_retries))
+            stage.status = TaskStatus.PENDING.value
+            pipeline.status = TaskStatus.PENDING.value
+            pipeline.current_stage = first_stage.stage_key
+            session.flush()
+        self.wake_up()
+        return self.get(pipeline_id)
 
     def active_task_id(self, pipeline_id: str) -> str | None:
         with self.db.session() as session:

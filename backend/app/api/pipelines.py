@@ -65,8 +65,7 @@ def resume_pipeline(pipeline_id: str, ctx: AppContext = Depends(get_ctx)) -> Pip
 @router.post(
     "/{pipeline_id}/rerun",
     response_model=PipelineOut,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create a new pipeline run with the same configuration",
+    summary="Rerun a terminal pipeline in place, reusing its stage tasks",
 )
 def rerun_pipeline(pipeline_id: str, ctx: AppContext = Depends(get_ctx)) -> PipelineOut:
     try:
