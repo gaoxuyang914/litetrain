@@ -31,6 +31,34 @@ def test_runtime_settings_update_and_task_defaults(client):
     assert data["defaults"]["max_retries"] == 1
     assert data["defaults"]["cpu_cores"] == 2
     assert data["user_cpu_quota"] == 4
+    assert data["limits"]["max_runtime_seconds"] == [10, 900]
+    assert data["limits"]["max_retries"] == [0, 1]
+
+    too_long = client.post(
+        "/api/v1/tasks",
+        json={
+            "model": "yolov8n.pt",
+            "dataset": "coco128.yaml",
+            "cpu_cores": 2,
+            "max_runtime_seconds": 901,
+            "max_retries": 0,
+        },
+    )
+    assert too_long.status_code == 422
+    assert "max_runtime_seconds" in too_long.text
+
+    too_many_retries = client.post(
+        "/api/v1/tasks",
+        json={
+            "model": "yolov8n.pt",
+            "dataset": "coco128.yaml",
+            "cpu_cores": 2,
+            "max_runtime_seconds": 300,
+            "max_retries": 2,
+        },
+    )
+    assert too_many_retries.status_code == 422
+    assert "max_retries" in too_many_retries.text
 
     bad = client.patch(
         "/api/v1/settings",

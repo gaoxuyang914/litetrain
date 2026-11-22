@@ -63,6 +63,8 @@ const rules: FormRules = {
 const maxCpu = computed(() => options.value?.limits.cpu_cores?.[1] ?? options.value?.user_cpu_quota ?? 8)
 const totalCpus = computed(() => options.value?.total_cpus ?? 8)
 const quota = computed(() => options.value?.user_cpu_quota ?? 8)
+const maxRuntime = computed(() => options.value?.limits.max_runtime_seconds?.[1] ?? 1800)
+const maxRetries = computed(() => options.value?.limits.max_retries?.[1] ?? 3)
 const imageSizes = [64, 96, 128, 160, 224, 320, 480, 640]
 const backendLabel = computed(() =>
   options.value?.execution_backend === 'ray' ? 'Ray 执行器' : '本地进程',
@@ -117,6 +119,26 @@ const priorityLabel = computed(() => {
 })
 
 const timeoutLabel = computed(() => formatDuration(form.max_runtime_seconds))
+
+function warnPolicyLimit(label: string, value: number): void {
+  ElMessage.warning(`${label}最多为 ${value}，已按后台配置限制`)
+}
+
+function handleRuntimeChange(value: number | undefined) {
+  if (value != null && value > maxRuntime.value) {
+    form.max_runtime_seconds = maxRuntime.value
+    warnPolicyLimit('运行时长', maxRuntime.value)
+  }
+  schedulePreview()
+}
+
+function handleRetriesChange(value: number | undefined) {
+  if (value != null && value > maxRetries.value) {
+    form.max_retries = maxRetries.value
+    warnPolicyLimit('失败重试次数', maxRetries.value)
+  }
+  schedulePreview()
+}
 
 const coreStress = computed(() => {
   const ratio = form.cpu_cores / Math.max(1, totalCpus.value)
@@ -182,8 +204,14 @@ async function loadOptions() {
         data.limits.cpu_cores?.[1] ?? data.user_cpu_quota,
       ),
       priority: data.defaults.priority,
-      max_runtime_seconds: data.defaults.max_runtime_seconds,
-      max_retries: data.defaults.max_retries,
+      max_runtime_seconds: Math.min(
+        data.defaults.max_runtime_seconds,
+        data.limits.max_runtime_seconds?.[1] ?? data.defaults.max_runtime_seconds,
+      ),
+      max_retries: Math.min(
+        data.defaults.max_retries,
+        data.limits.max_retries?.[1] ?? data.defaults.max_retries,
+      ),
       workers: data.defaults.workers,
     })
     const selected = datasetRecord.value
@@ -199,6 +227,18 @@ async function loadOptions() {
 
 async function submit() {
   if (!formRef.value) return
+  if (form.max_runtime_seconds > maxRuntime.value) {
+    warnPolicyLimit('运行时长', maxRuntime.value)
+    return
+  }
+  if (form.max_retries > maxRetries.value) {
+    warnPolicyLimit('失败重试次数', maxRetries.value)
+    return
+  }
+  if (form.cpu_cores > maxCpu.value) {
+    warnPolicyLimit('CPU 核数', maxCpu.value)
+    return
+  }
   try {
     await formRef.value.validate()
   } catch {
@@ -237,7 +277,7 @@ function applyPreset(kind: 'quick' | 'standard') {
       imgsz: 96,
       batch_size: 4,
       cpu_cores: Math.min(4, maxCpu.value),
-      max_runtime_seconds: 300,
+      max_runtime_seconds: Math.min(300, maxRuntime.value),
       priority: 50,
     })
   } else {
@@ -246,7 +286,7 @@ function applyPreset(kind: 'quick' | 'standard') {
       imgsz: 160,
       batch_size: 4,
       cpu_cores: Math.min(6, maxCpu.value),
-      max_runtime_seconds: 1800,
+      max_runtime_seconds: Math.min(1800, maxRuntime.value),
       priority: 60,
     })
   }
@@ -513,22 +553,30 @@ onBeforeUnmount(() => {
                   <el-input-number
                     v-model="form.max_runtime_seconds"
                     :min="options?.limits.max_runtime_seconds?.[0] ?? 10"
-                    :max="options?.limits.max_runtime_seconds?.[1] ?? 86400"
-                    :step="60"
+                    :max="86400"
+                    :step="10"
                     controls-position="right"
+                    @change="handleRuntimeChange"
                   />
                   <span class="field-suffix">秒</span>
                 </div>
-                <span class="field-hint">超时后平台会终止训练进程并释放资源 · 当前 {{ timeoutLabel }}</span>
+                <span class="field-hint">超时后平台会终止训练进程并释放资源 · 当前 {{ timeoutLabel }} · 后台上限 {{ formatDuration(maxRuntime) }}</span>
               </div>
 
               <div class="resource-block compact-block">
                 <span class="el-form-item__label">失败自动重试</span>
                 <div class="inline-field">
-                  <el-input-number v-model="form.max_retries" :min="0" :max="5" :step="1" controls-position="right" />
+                  <el-input-number
+                    v-model="form.max_retries"
+                    :min="0"
+                    :max="5"
+                    :step="1"
+                    controls-position="right"
+                    @change="handleRetriesChange"
+                  />
                   <span class="field-suffix">次</span>
                 </div>
-                <span class="field-hint">仅对训练进程失败自动重试；超时或取消不会重试</span>
+                <span class="field-hint">仅对训练进程失败自动重试；超时或取消不会重试 · 后台上限 {{ maxRetries }} 次</span>
               </div>
             </div>
           </section>

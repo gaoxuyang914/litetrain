@@ -20,7 +20,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | 完整 Git 仓库 | [github.com/gaoxuyang914/litetrain](https://github.com/gaoxuyang914/litetrain)，`main` 分支，提交历史与版本标签见仓库 |
 | README | 本文件：环境依赖、快速开始、架构图、HTTP 接口、测试与验收、已知边界 |
 | 可运行演示 | `scripts/setup.ps1` → `scripts/start_ray.ps1` → `scripts/start_backend.ps1` → `scripts/start_frontend.ps1`；黑盒验收脚本 `scripts/e2e_live.py` |
-| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，23 张真实运行截图 |
+| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，24 张真实运行截图 |
 | CI | [.github/workflows/ci.yml](.github/workflows/ci.yml)，GitHub Actions 后端测试 + 前端 typecheck/build |
 
 ---
@@ -69,7 +69,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | YOLO 指标 | Ultralytics `on_fit_epoch_end` 回调采集 loss / mAP / precision / recall / lr；存 SQLite；前端 ECharts 折线图 |
 | 失败自动重试 | `max_retries` 0–5；worker 异常、非 0 退出、启动失败可自动重试；超时/心跳超时/手动取消不重试 |
 | 单用户 CPU 配额 | `LITETRAIN_USER_CPU_QUOTA`；同时检查节点空闲量和用户已用量；由后台「运行设置」动态调整 |
-| 后台管理 | `/admin`：管理员创建账号、分配角色（管理员/操作员/只读）、启停账号、重置密码，并集中修改运行设置 |
+| 后台管理 | `/admin`：管理员创建账号、分配角色（管理员/操作员/只读）、启停账号、重置密码，并集中修改运行设置；任务提交页不能超过后台设置的任务超时/重试上限 |
 | 资源采样 | worker 随心跳上报进程树 CPU% / RSS / 进程数；任务级时间序列 |
 | 日志关键词高亮 | 终端内搜索高亮，不改变原始日志 |
 | 浏览器通知 | 可选开启；任务变为终态时通过 Notification API 通知 |
@@ -153,7 +153,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 ![Webhook](docs/screenshots/webhooks.png)
 
-更多截图：登录 [login.png](docs/screenshots/login.png)、后台管理 [admin.png](docs/screenshots/admin.png)、任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
+更多截图：登录 [login.png](docs/screenshots/login.png)、后台管理 [admin.png](docs/screenshots/admin.png)、任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、超限提醒 [task-limits.png](docs/screenshots/task-limits.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
 
 > 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.5 Ultralytics-style workspace**：白色侧栏与任务搜索、蓝色品牌、细边框浅色卡片、黑色主按钮、浅色集群拓扑、数据质量准入和运行清单；字号、对比度、焦点和 reduced-motion 均按 `deepseek-frontend-design` 技能自检。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
 
@@ -380,7 +380,7 @@ npm run dev
 - 管理员：可进入平台和后台，创建账号、分配角色、启停账号、重置密码、修改运行设置
 - 操作员：可提交、取消、抢占相关操作和管理资产
 - 只读成员：只能查看训练、日志和产物
-- 后台「运行设置」是唯一可修改默认超时、心跳阈值、默认重试、默认 CPU 和单用户配额的入口
+- 后台「运行设置」是唯一可修改任务超时上限、心跳阈值、失败重试上限、默认 CPU 和单用户配额的入口；任务提交页不能超过超时/重试上限。
 - 生产部署请通过 `LITETRAIN_BOOTSTRAP_ADMIN_PASSWORD` 覆盖默认密码
 
 ### 9. 第一次任务
@@ -718,7 +718,7 @@ Base：`http://127.0.0.1:8000/api/v1`；完整 OpenAPI 在 `/docs`。
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/settings` | 当前运行策略、允许范围和最近更新时间 |
-| `PATCH` | `/settings` | 更新默认超时、心跳阈值、默认重试、默认 CPU、单用户配额；写入 SQLite 并即时生效 |
+| `PATCH` | `/settings` | 更新任务超时上限、心跳阈值、失败重试上限、默认 CPU、单用户配额；写入 SQLite 并即时生效 |
 
 ### Worker 内部回调
 
@@ -806,7 +806,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/pipelines \
 | `LITETRAIN_BOOTSTRAP_ADMIN_PASSWORD` | `admin123` | 首次启动管理员密码，生产必须覆盖 |
 | `LITETRAIN_HEARTBEAT_INTERVAL_SECONDS` | `4` | worker 心跳周期 |
 | `LITETRAIN_HEARTBEAT_TIMEOUT_SECONDS` | `25` | 心跳超时阈值 |
-| `LITETRAIN_DEFAULT_MAX_RUNTIME_SECONDS` | `1800` | 表单默认超时 |
+| `LITETRAIN_DEFAULT_MAX_RUNTIME_SECONDS` | `1800` | 任务超时上限，同时是新任务默认值 |
 | `LITETRAIN_WORKER_API_BASE` | `http://127.0.0.1:8000/api/v1` | worker 回调地址 |
 | `LITETRAIN_WORKER_PYTHON` | 当前解释器 | 实际训练用的 venv Python |
 | `LITETRAIN_PIPELINE_DEFAULT_MAX_IMAGES` | `24` | 流水线预处理默认图片上限 |
@@ -926,7 +926,8 @@ LATER          status=succeeded runtime=91s
 - **SQLite**：适合单机演示，不适合多 API 实例共享；真实多实例需迁移 Postgres 并加行级锁。
 - **流水线固定三阶段**：题目指定 preprocess → train → evaluate；没有通用 DAG 编辑器、分支或并行阶段。
 - **无鉴权/多租户**：题目是单用户演示；生产需要 OIDC/JWT、任务级权限和审计。
-- **认证**：密码使用 PBKDF2-SHA256 哈希；session token 存在 SQLite，可注销；前端 token 存在 localStorage，生产建议改为 HttpOnly Cookie。
+- **后台任务上限**：任务提交页的运行时长和失败重试次数受后台「运行设置」约束；超过时前端提示并回退，API 直接返回 422。
+- **认证**：密码使用 PBKDF2-SHA256 哈希；session token 存在 SQLite，可注销；前端 token 存在 localStorage，生产建议改为纯 HttpOnly Cookie 并增加登录限流。
 - **默认管理员密码**：首次启动为 `admin/admin123`；生产部署必须通过环境变量修改。
 - **抢占粒度**：只在 checkpoint 边界恢复；无 checkpoint 不抢占，当前 epoch 的进度会回退到最近 checkpoint。抢占只针对独立任务，不处理流水线阶段。
 - **数据集删除是软删除**：记录和原始归档保留；不做对象存储生命周期管理。

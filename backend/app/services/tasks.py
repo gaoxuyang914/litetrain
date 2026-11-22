@@ -193,9 +193,13 @@ class TaskService:
             raise TaskValidationError(
                 f"cpu_cores must be <= single-user quota ({self.settings.user_cpu_quota})"
             )
-        if payload.max_runtime_seconds > self.settings.max_runtime_seconds_limit:
+        if payload.max_runtime_seconds > self._runtime_cap():
             raise TaskValidationError(
-                f"max_runtime_seconds must be <= {self.settings.max_runtime_seconds_limit}"
+                f"max_runtime_seconds must be <= platform limit ({self._runtime_cap()}s configured in admin)"
+            )
+        if payload.max_retries > self._retry_cap():
+            raise TaskValidationError(
+                f"max_retries must be <= platform limit ({self._retry_cap()} configured in admin)"
             )
         try:
             model_path = resolve_model_path(self.settings, payload.model)
@@ -236,7 +240,20 @@ class TaskService:
             estimated_note=f"CPU 示例数据预计约 {estimate // 60}分{estimate % 60}秒（仅供参考）",
         )
 
+    def _runtime_cap(self) -> int:
+        return min(
+            self.settings.default_max_runtime_seconds,
+            self.settings.max_runtime_seconds_limit,
+        )
+
+    def _retry_cap(self) -> int:
+        return max(0, min(5, self.settings.default_max_retries))
+
     def create(self, payload: TaskCreate) -> TaskOut:
+        if "max_runtime_seconds" not in payload.model_fields_set:
+            payload.max_runtime_seconds = self._runtime_cap()
+        if "max_retries" not in payload.model_fields_set:
+            payload.max_retries = self._retry_cap()
         record = self._dataset_record(payload)
         dataset_value = Path(record.yaml_path).name if record is not None else payload.dataset
         model_path, _, model_name = self._validate_request(payload, dataset_value)
@@ -451,8 +468,8 @@ class TaskService:
             patience=original.patience,
             save_period=original.save_period,
             priority=original.priority,
-            max_runtime_seconds=original.max_runtime_seconds,
-            max_retries=original.max_retries,
+            max_runtime_seconds=min(original.max_runtime_seconds, self._runtime_cap()),
+            max_retries=min(original.max_retries, self._retry_cap()),
             notes=f"rerun of {task_id}",
         )
         created = self.create(payload)
@@ -527,8 +544,8 @@ class TaskService:
             patience=original.patience,
             save_period=original.save_period,
             priority=original.priority,
-            max_runtime_seconds=original.max_runtime_seconds,
-            max_retries=original.max_retries,
+            max_runtime_seconds=min(original.max_runtime_seconds, self._runtime_cap()),
+            max_retries=min(original.max_retries, self._retry_cap()),
             notes=f"resume from {task_id} ({mode}, epoch {epoch_label})",
         )
         created = self.create(payload)
@@ -723,8 +740,8 @@ class TaskService:
                 "batch_size": [1, 64],
                 "cpu_cores": [1, max_cpu],
                 "priority": [0, 100],
-                "max_runtime_seconds": [10, self.settings.max_runtime_seconds_limit],
-                "max_retries": [0, 5],
+                "max_runtime_seconds": [10, self._runtime_cap()],
+                "max_retries": [0, self._retry_cap()],
             },
         )
 

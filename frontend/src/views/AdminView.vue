@@ -268,8 +268,8 @@ onMounted(loadAll)
         <div class="admin-settings" v-loading="settingsLoading">
           <div class="admin-setting-row">
             <div>
-              <strong>默认任务超时</strong>
-              <span>新任务未单独指定时使用；超时后终止并释放资源</span>
+              <strong>任务超时上限</strong>
+              <span>同时作为新任务默认值；提交页不能超过该值</span>
             </div>
             <div class="admin-setting-control">
               <el-input-number
@@ -300,8 +300,8 @@ onMounted(loadAll)
           </div>
           <div class="admin-setting-row">
             <div>
-              <strong>默认失败重试</strong>
-              <span>仅对进程失败生效；超时、取消和心跳超时不重试</span>
+              <strong>失败重试上限</strong>
+              <span>同时作为新任务默认值；超过该值的重试配置会被拒绝</span>
             </div>
             <div class="admin-setting-control">
               <el-input-number v-model="settingsForm.default_max_retries" :min="0" :max="5" controls-position="right" />
@@ -339,7 +339,7 @@ onMounted(loadAll)
             </div>
           </div>
         </div>
-        <p class="admin-note">当前单任务超时上限：{{ Math.round((runtimeSettings?.max_runtime_seconds_limit ?? 86400) / 3600) }} 小时。</p>
+        <p class="admin-note">当前提交页上限：{{ Math.round(settingsForm.default_max_runtime_seconds / 60) }} 分钟 / {{ settingsForm.default_max_retries }} 次重试。任务提交页会同时受这里的超时和重试上限约束。</p>
       </template>
     </section>
 
