@@ -5,7 +5,6 @@ import {
   Bell,
   BellFilled,
   DataAnalysis,
-  Document,
   Expand,
   Fold,
   FolderOpened,
@@ -321,15 +320,6 @@ onBeforeUnmount(() => {
           <span>运行设置</span>
           <span class="sidebar-doc-arrow">›</span>
         </button>
-        <a class="sidebar-doc" href="/docs" target="_blank" rel="noreferrer">
-          <el-icon><Document /></el-icon>
-          <span>API 文档</span>
-          <span class="sidebar-doc-arrow">↗</span>
-        </a>
-        <div class="sidebar-signature">
-          <span class="mono">v2.5.0</span>
-          <span>仅 CPU · 本地优先</span>
-        </div>
       </div>    </aside>
 
     <div v-if="mobileNavOpen" class="nav-backdrop" @click="mobileNavOpen = false"></div>
