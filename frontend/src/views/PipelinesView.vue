@@ -532,9 +532,11 @@ onBeforeUnmount(() => {
               重跑
             </el-button>
             <el-button
-              v-if="canResumePipeline(pipeline)"
+              v-if="isTerminal(pipeline.status)"
               :icon="Refresh"
               :loading="resumingId === pipeline.id"
+              :disabled="!canResumePipeline(pipeline)"
+              :title="pipeline.status === 'succeeded' ? '流水线已完成，无需继续' : '没有可继续的成功阶段'"
               @click="resumePipeline(pipeline)"
             >
               继续
