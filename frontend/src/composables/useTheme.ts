@@ -9,7 +9,7 @@ function apply(dark: boolean) {
   document.documentElement.classList.toggle('dark', dark)
   document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
   const meta = document.querySelector('meta[name="theme-color"]')
-  meta?.setAttribute('content', dark ? '#07130f' : '#0d1f1a')
+  meta?.setAttribute('content', dark ? '#0d1219' : '#0d1f1a')
 }
 
 export function initTheme() {
