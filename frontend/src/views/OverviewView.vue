@@ -861,12 +861,14 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-if="benchmarkSelected" class="benchmark-selected">
-          <div>
-            推荐：threads {{ benchValue(benchmarkSelected, 'threads') }} / workers
-            {{ benchValue(benchmarkSelected, 'workers') }} /
-            {{ benchValue(benchmarkSelected, 'images_per_second') }} images/s
+          <div class="benchmark-recommend">
+            <span class="benchmark-recommend-label">推荐配置</span>
+            <strong>threads {{ benchValue(benchmarkSelected, 'threads') }} · workers {{ benchValue(benchmarkSelected, 'workers') }}</strong>
+            <span class="benchmark-recommend-speed">{{ benchValue(benchmarkSelected, 'images_per_second') }} images/s</span>
           </div>
-          <el-button size="small" type="primary" plain @click="applyBenchmark">应用到提交任务</el-button>
+          <el-button text class="benchmark-apply" :icon="ArrowRight" @click="applyBenchmark">
+            应用到提交任务
+          </el-button>
         </div>
 
         <el-table v-if="benchmarkResults.length" :data="benchmarkResults" class="benchmark-table">
@@ -3573,15 +3575,55 @@ html.dark .accent-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
   flex-wrap: wrap;
-  margin-top: 10px;
-  padding: 10px 12px;
+  margin-top: 12px;
+  padding: 11px 13px;
   border: 1px solid var(--accent-line);
-  border-radius: 6px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  font-size: 13px;
+  border-radius: 9px;
+  background:
+    linear-gradient(100deg, color-mix(in srgb, var(--accent-soft) 74%, transparent), transparent 72%),
+    var(--panel-soft);
+}
+
+.benchmark-recommend {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.benchmark-recommend-label {
+  padding: 2px 6px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.benchmark-recommend strong {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.benchmark-recommend-speed {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.benchmark-apply {
+  flex: 0 0 auto;
+  color: var(--accent) !important;
+  font-size: 11px;
+}
+
+.benchmark-apply:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
 }
 
 .benchmark-table {
