@@ -429,11 +429,14 @@ onBeforeUnmount(() => {
             任务队列
             <span class="metric-tag">实时</span>
           </div>
-          <div class="queue-main">
-            <strong>{{ overview.tasks.running }}</strong>
-            <span>运行中</span>
-            <em>+{{ overview.tasks.pending }}</em>
-            <span class="queue-waiting">等待中</span>
+          <div class="queue-status-list">
+            <div v-for="row in statusRows" :key="row.key" class="queue-status-item">
+              <span class="queue-status-label">
+                <i :style="{ background: row.color }"></i>
+                {{ row.label }}
+              </span>
+              <strong class="mono">{{ row.value }}</strong>
+            </div>
           </div>
           <div class="queue-strip">
             <span
@@ -442,13 +445,6 @@ onBeforeUnmount(() => {
               class="queue-strip-seg"
               :style="{ flexGrow: Math.max(0.14, row.value), background: row.color }"
             ></span>
-          </div>
-          <div class="queue-legend">
-            <span v-for="row in statusRows" :key="row.key">
-              <i :style="{ background: row.color }"></i>
-              {{ row.label }}
-              <strong class="mono">{{ row.value }}</strong>
-            </span>
           </div>
           <div class="metric-foot">
             <span>累计 {{ overview.tasks.total }} 个任务</span>
@@ -4324,93 +4320,88 @@ html.dark .accent-card {
   }
 }
 
-/* Summary deck: two machine cards on top, queue as a full-width workflow row. */
-.queue-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px 14px;
-  margin-top: 11px;
-}
-
-.queue-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--text-muted);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-.queue-legend i {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-}
-
-.queue-legend strong {
-  color: var(--text-secondary);
-  font-size: 10px;
-  font-weight: 600;
-}
-
-@media (min-width: 761px) {
+/* Summary deck: three cards in one row; queue statuses stack vertically. */
+@media (min-width: 900px) {
   .overview-page .metric-deck {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: stretch;
   }
 
-  .overview-page .metric-cpu {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .overview-page .metric-host {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
+  .overview-page .metric-cpu,
+  .overview-page .metric-host,
   .overview-page .metric-queue {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    display: grid;
-    grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.28fr);
-    grid-template-rows: auto auto auto auto;
-    align-items: center;
-    column-gap: 28px;
-    min-height: 0;
+    grid-column: auto;
+    grid-row: auto;
   }
+}
 
-  .metric-queue .metric-kicker {
-    grid-column: 1 / -1;
-    grid-row: 1;
-  }
+.metric-queue {
+  display: flex;
+  flex-direction: column;
+}
 
-  .metric-queue .queue-main {
-    grid-column: 1;
-    grid-row: 2 / span 2;
-    margin-top: 10px;
-    align-self: center;
-  }
+.queue-status-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  margin-top: 10px;
+}
 
-  .metric-queue .queue-strip {
-    grid-column: 2;
-    grid-row: 2;
-    align-self: end;
-    margin-top: 8px;
-    height: 8px;
-  }
+.queue-status-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 27px;
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--border);
+}
 
-  .metric-queue .queue-legend {
-    grid-column: 2;
-    grid-row: 3;
-    margin-top: 9px;
-  }
+.queue-status-item:last-child {
+  border-bottom: 0;
+}
 
-  .metric-queue .metric-foot {
-    grid-column: 1 / -1;
-    grid-row: 4;
-    margin-top: 13px;
-  }
+.queue-status-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.queue-status-label i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.queue-status-item strong {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.queue-status-item:first-child .queue-status-label {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.queue-status-item:first-child strong {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.metric-queue .queue-strip {
+  flex: 0 0 auto;
+  margin-top: 10px;
+}
+
+.metric-queue .metric-foot {
+  margin-top: auto;
+  padding-top: 12px;
 }
 </style>
 
