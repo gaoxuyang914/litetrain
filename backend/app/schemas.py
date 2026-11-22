@@ -194,6 +194,7 @@ class AuthUserOut(BaseModel):
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=256)
+    client: str = Field(default="platform", pattern=r"^(platform|admin)$")
 
 
 class LoginResponse(BaseModel):

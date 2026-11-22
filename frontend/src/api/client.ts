@@ -102,8 +102,8 @@ http.interceptors.response.use(
 )
 
 export const api = {
-  async login(username: string, password: string): Promise<LoginResponse> {
-    const { data } = await http.post<LoginResponse>('/auth/login', { username, password })
+  async login(username: string, password: string, client: 'platform' | 'admin' = 'platform'): Promise<LoginResponse> {
+    const { data } = await http.post<LoginResponse>('/auth/login', { username, password, client })
     return data
   },
 

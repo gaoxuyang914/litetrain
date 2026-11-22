@@ -45,14 +45,15 @@ def login(
         token, user, expires_at = ctx.auth.login(payload.username, payload.password)
     except AuthError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    response.set_cookie(
-        SESSION_COOKIE,
-        token,
-        httponly=True,
-        samesite="lax",
-        max_age=max(60, ctx.settings.auth_session_hours * 3600),
-        path="/",
-    )
+    if payload.client == "platform":
+        response.set_cookie(
+            SESSION_COOKIE,
+            token,
+            httponly=True,
+            samesite="lax",
+            max_age=max(60, ctx.settings.auth_session_hours * 3600),
+            path="/",
+        )
     return LoginResponse(token=token, expires_at=expires_at, user=user_out(user))
 
 

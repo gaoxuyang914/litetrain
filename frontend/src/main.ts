@@ -7,18 +7,28 @@ import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import '@/styles/index.css'
 
-import App from './App.vue'
-import router from './router'
 import { initTheme } from '@/composables/useTheme'
 
 initTheme()
 
-const app = createApp(App)
+async function bootstrap() {
+  const adminMode = import.meta.env.VITE_ADMIN_MODE === 'true'
+  const rootComponent = adminMode
+    ? (await import('@/views/AdminApp.vue')).default
+    : (await import('./App.vue')).default
+  const app = createApp(rootComponent)
 
-for (const [name, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(name, component)
+  for (const [name, component] of Object.entries(ElementPlusIconsVue)) {
+    app.component(name, component)
+  }
+
+  if (!adminMode) {
+    const router = (await import('./router')).default
+    app.use(router)
+  }
+
+  app.use(ElementPlus, { locale: zhCn })
+  app.mount('#app')
 }
 
-app.use(router)
-app.use(ElementPlus, { locale: zhCn })
-app.mount('#app')
+void bootstrap()

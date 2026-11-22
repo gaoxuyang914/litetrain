@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "dev:admin": "vite --host 127.0.0.1 --port 5174 --mode admin",
     "build": "vue-tsc --noEmit && vite build",
+    "build:admin": "vue-tsc --noEmit && vite build --mode admin",
     "typecheck": "vue-tsc --noEmit",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "preview:admin": "vite preview --host 127.0.0.1 --port 5174 --mode admin"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

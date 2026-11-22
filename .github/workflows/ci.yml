@@ -76,3 +76,6 @@ jobs:
 
       - name: Build production bundle
         run: npm run build
+
+      - name: Build admin console bundle
+        run: npm run build:admin

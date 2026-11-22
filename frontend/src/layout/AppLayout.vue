@@ -16,7 +16,6 @@ import {
   Sunny,
   SwitchButton,
   Tickets,
-  UserFilled,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
@@ -29,7 +28,6 @@ import type { ClusterOverview } from '@/types/task'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuth()
-const isAdmin = auth.isAdmin
 const { isDark, toggleTheme } = useTheme()
 const { enabled: notificationsEnabled, setEnabled } = useNotifications()
 
@@ -223,24 +221,6 @@ onBeforeUnmount(() => {
               {{ overview.tasks.running }}
             </span>
             <span v-else class="nav-chevron">↗</span>
-          </button>
-        </nav>
-      </div>
-
-      <div v-if="isAdmin" class="nav-block">
-        <p class="nav-label">管理</p>
-        <nav class="nav-list">
-          <button
-            type="button"
-            class="nav-item"
-            :class="{ active: isActive('admin') }"
-            :title="sidebarCollapsed ? '后台管理' : undefined"
-            aria-label="后台管理"
-            @click="navigate('admin')"
-          >
-            <span class="nav-icon"><el-icon><UserFilled /></el-icon></span>
-            <span class="nav-copy"><strong>后台管理</strong></span>
-            <span class="nav-chevron">↗</span>
           </button>
         </nav>
       </div>

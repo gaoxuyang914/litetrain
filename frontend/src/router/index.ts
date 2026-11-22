@@ -53,12 +53,6 @@ const router = createRouter({
           component: () => import('@/views/AssetsView.vue'),
           meta: { title: '数据与产物', eyebrow: '资产' },
         },
-        {
-          path: 'admin',
-          name: 'admin',
-          component: () => import('@/views/AdminView.vue'),
-          meta: { title: '后台管理', eyebrow: '管理', requiresAdmin: true },
-        },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/overview' },

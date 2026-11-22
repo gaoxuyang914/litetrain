@@ -173,8 +173,9 @@ def create_app(
 
         authorization = request.headers.get("Authorization", "")
         scheme, _, token = authorization.partition(" ")
+        admin_path = path.startswith(f"{prefix}/admin") or path == f"{prefix}/settings"
         if scheme.lower() != "bearer" or not token:
-            token = request.cookies.get("litetrain_session") or ""
+            token = "" if admin_path else (request.cookies.get("litetrain_session") or "")
         if not token:
             return JSONResponse(
                 status_code=401,

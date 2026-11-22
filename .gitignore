@@ -45,6 +45,7 @@ Ultralytics/
 # Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/dist-admin/
 frontend/.vite/
 frontend/coverage/
 .npm-cache/

@@ -20,8 +20,9 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | 完整 Git 仓库 | [github.com/gaoxuyang914/litetrain](https://github.com/gaoxuyang914/litetrain)，`main` 分支，提交历史与版本标签见仓库 |
 | README | 本文件：环境依赖、快速开始、架构图、HTTP 接口、测试与验收、已知边界 |
 | 可运行演示 | `scripts/setup.ps1` → `scripts/start_ray.ps1` → `scripts/start_backend.ps1` → `scripts/start_frontend.ps1`；黑盒验收脚本 `scripts/e2e_live.py` |
+| 规格与设计文档 | [docs/README.md](docs/README.md)：SDD 需求规格、技术实现设计、TDD 测试规格与验收矩阵 |
 | 演示截图 | [docs/screenshots](docs/screenshots/README.md)，24 张真实运行截图 |
-| CI | [.github/workflows/ci.yml](.github/workflows/ci.yml)，GitHub Actions 后端测试 + 前端 typecheck/build |
+| CI | [.github/workflows/ci.yml](.github/workflows/ci.yml)，GitHub Actions 后端测试 + 平台/后台前端 typecheck/build |
 
 ---
 
@@ -69,7 +70,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | YOLO 指标 | Ultralytics `on_fit_epoch_end` 回调采集 loss / mAP / precision / recall / lr；存 SQLite；前端 ECharts 折线图 |
 | 失败自动重试 | `max_retries` 0–5；worker 异常、非 0 退出、启动失败可自动重试；超时/心跳超时/手动取消不重试 |
 | 单用户 CPU 配额 | `LITETRAIN_USER_CPU_QUOTA`；同时检查节点空闲量和用户已用量；由后台「运行设置」动态调整 |
-| 后台管理 | `/admin`：管理员创建账号、分配角色（管理员/操作员/只读）、启停账号、重置密码，并集中修改运行设置；任务提交页不能超过后台设置的任务超时/重试上限 |
+| 后台管理 | `http://127.0.0.1:5174`（独立端口）：管理员创建账号、分配角色（管理员/操作员/只读）、启停账号、重置密码，并集中修改运行设置；任务提交页不能超过后台设置的任务超时/重试上限 |
 | 资源采样 | worker 随心跳上报进程树 CPU% / RSS / 进程数；任务级时间序列 |
 | 日志关键词高亮 | 终端内搜索高亮，不改变原始日志 |
 | 浏览器通知 | 可选开启；任务变为终态时通过 Notification API 通知 |
@@ -318,9 +319,14 @@ ray start --head --num-cpus=8 --port=6380 `
 
 ```powershell
 .\scripts\start_frontend.ps1
+
+# 另开一个终端启动后台管理
+.\scripts\start_admin.ps1
 ```
 
-- UI：<http://127.0.0.1:5173>
+- 训练平台：<http://127.0.0.1:5173>
+- 后台管理：<http://127.0.0.1:5174>
+- 两个端口使用独立 localStorage 和独立后端 session，互不影响登录
 - Vite 把 `/api`、`/docs`、`/openapi.json`、`/healthz` 代理到 `127.0.0.1:8000`。
 
 ### 6. 生产构建（可选）
@@ -328,11 +334,15 @@ ray start --head --num-cpus=8 --port=6380 `
 ```powershell
 cd frontend
 npm run build
+npm run build:admin
 # 重启后端
 .\scripts\start_backend.ps1
+# 后台静态预览
+npm run preview:admin
 ```
 
-FastAPI 会自动托管 `frontend/dist`，此时可以直接访问 <http://127.0.0.1:8000>（`LITETRAIN_SERVE_FRONTEND=true`）。
+- 平台构建输出 `frontend/dist`，可由 FastAPI 托管。
+- 后台构建输出 `frontend/dist-admin`，在独立端口 `5174` 预览。
 
 ### 7. Linux / macOS 手动启动
 
@@ -365,15 +375,18 @@ PYTHONPATH=backend uvicorn app.main:app --host 127.0.0.1 --port 8000
 cd frontend
 npm install
 npm run dev
+
+# 后台管理终端
+npm run dev:admin
 ```
 
 ### 8. 登录与后台管理
 
-平台和后台都需要登录：
+平台和后台使用不同端口、不同浏览器 origin，登录 session 独立：
 
 ```text
 平台：http://127.0.0.1:5173
-后台：http://127.0.0.1:5173/admin
+后台：http://127.0.0.1:5174
 首次运行管理员：admin / admin123
 ```
 
@@ -828,7 +841,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/pipelines \
 仓库包含 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)，在 push 到 `main`、Pull Request 和手动触发时运行：
 
 - **Backend tests**：Python 3.13 + CPU PyTorch，安装依赖后执行 `pytest`
-- **Frontend typecheck and build**：Node.js 22，执行 `npm ci`、`vue-tsc --noEmit` 和 `vite build`
+- **Frontend typecheck and build**：Node.js 22，执行 `npm ci`、`vue-tsc --noEmit`、`vite build` 和后台 `build:admin`
 
 首次运行需要下载 PyTorch / Ray / Ultralytics，GitHub Actions 会自动缓存 pip 和 npm 依赖。
 

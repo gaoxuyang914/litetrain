@@ -33,8 +33,12 @@ export function useAuth() {
   const isAuthenticated = computed(() => Boolean(token.value))
   const isAdmin = computed(() => user.value?.permissions.includes('admin.console') ?? false)
 
-  async function login(username: string, password: string): Promise<AuthUser> {
-    const response = await api.login(username, password)
+  async function login(
+    username: string,
+    password: string,
+    client: 'platform' | 'admin' = 'platform',
+  ): Promise<AuthUser> {
+    const response = await api.login(username, password, client)
     persist(response.token, response.user)
     return response.user
   }
