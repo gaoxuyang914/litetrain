@@ -602,10 +602,6 @@ onBeforeUnmount(() => {
         <div><strong>{{ activeWebhooks }}</strong><span>个 Webhook</span></div>
         <small>{{ successfulDeliveries }} 次投递成功</small>
       </div>
-      <div class="asset-note">
-        <span class="soft-label">本地资产存储</span>
-        <p>训练完成后自动扫描 <code>weights/best.pt</code>、<code>last.pt</code> 与 <code>results.csv</code>，计算 SHA-256 并提供下载。</p>
-      </div>
     </section>
 
     <section class="panel assets-panel">
@@ -3048,9 +3044,17 @@ html.dark .asset-tab.active strong {
   margin: 0;
 }
 
+.asset-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 @media (max-width: 760px) {
   .model-toolbar {
     flex-direction: column;
+  }
+
+  .asset-summary {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>
