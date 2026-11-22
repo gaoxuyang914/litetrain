@@ -13,11 +13,22 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 > CPU 优化的落地路线、现状差距、里程碑和验收指标见 [docs/CPU_OPTIMIZATION_LANDING_PLAN.md](docs/CPU_OPTIMIZATION_LANDING_PLAN.md)。
 
+## 交付物对照
+
+| 交付物 | 位置 / 验证 |
+| --- | --- |
+| 完整 Git 仓库 | [github.com/gaoxuyang914/litetrain](https://github.com/gaoxuyang914/litetrain)，`main` 分支，提交历史与版本标签见仓库 |
+| README | 本文件：环境依赖、快速开始、架构图、HTTP 接口、测试与验收、已知边界 |
+| 可运行演示 | `scripts/setup.ps1` → `scripts/start_ray.ps1` → `scripts/start_backend.ps1` → `scripts/start_frontend.ps1`；黑盒验收脚本 `scripts/e2e_live.py` |
+| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，19 张真实运行截图 |
+| CI | [.github/workflows/ci.yml](.github/workflows/ci.yml)，GitHub Actions 后端测试 + 前端 typecheck/build |
+
 ---
 
 ## 目录
 
 - [功能概览](#功能概览)
+- [交付物对照](#交付物对照)
 - [界面截图](#界面截图)
 - [架构](#架构)
 - [快速开始](#快速开始)
@@ -582,6 +593,11 @@ Base：`http://127.0.0.1:8000/api/v1`；完整 OpenAPI 在 `/docs`。
 | `GET` | `/tasks/{id}/logs/download` | 下载完整日志 |
 | `GET` | `/tasks/{id}/events` | 事件时间线 |
 | `GET` | `/tasks/{id}/metrics` | YOLO series + 资源采样 + final metrics |
+| `GET` | `/tasks/{id}/manifest` | Run Manifest（数据/模型哈希、环境、Git） |
+| `GET` | `/tasks/{id}/checkpoints` | Checkpoint 列表与 `fallback_available` |
+| `POST` | `/tasks/{id}/resume` | 从指定 checkpoint 继续（`mode=full/weights`） |
+| `POST` | `/tasks/{id}/rerun` | 按原配置创建重跑任务 |
+| `GET` | `/tasks/compare?ids=a,b` | 2–4 个任务对比 |
 
 ### 集群与多节点
 
@@ -592,6 +608,9 @@ Base：`http://127.0.0.1:8000/api/v1`；完整 OpenAPI 在 `/docs`。
 | `POST` | `/cluster/nodes/topology` | 替换为模拟节点拓扑；`nodes: [{name,total_cpus}]` |
 | `PATCH` | `/cluster/nodes/{id}` | `online / offline`；带 active allocation 的节点不能下线 |
 | `GET` | `/cluster/health` | 健康检查 |
+| `GET` | `/cluster/task-distribution?window=1h` | 状态分布，支持 5m–180d / all |
+| `POST` | `/cluster/benchmarks` | 启动 CPU Benchmark |
+| `GET` | `/cluster/benchmarks/latest` | 最近一次 Benchmark 与推荐 profile |
 | `GET` | `/version` | 版本、执行器、scheduler 后端信息 |
 
 ### 流水线
@@ -612,6 +631,10 @@ Base：`http://127.0.0.1:8000/api/v1`；完整 OpenAPI 在 `/docs`。
 | `GET` | `/datasets/{id}` | 数据集详情 |
 | `GET` | `/datasets/{id}/download` | 下载原始 ZIP（内置数据集无归档时 404） |
 | `DELETE` | `/datasets/{id}` | 软删除 |
+| `POST` | `/datasets/{id}/audit` | 重新体检数据集 |
+| `GET` | `/datasets/{id}/quality` | 质量摘要、issue 列表、报告 URL |
+| `POST` | `/datasets/{id}/quality/ack` | 确认警告，允许进入训练 |
+| `GET` | `/datasets/{id}/quality/report` | 打开 HTML 质量报告 |
 | `GET` | `/artifacts` | 支持 `task_id` / `pipeline_id` / `kind` 过滤 |
 | `GET` | `/artifacts/{id}/download` | 下载权重/指标/配置 |
 
@@ -634,6 +657,7 @@ Base：`http://127.0.0.1:8000/api/v1`；完整 OpenAPI 在 `/docs`。
 | --- | --- | --- |
 | `POST` | `/internal/tasks/{id}/heartbeat` | 心跳 + CPU/内存采样 + 进度 |
 | `POST` | `/internal/tasks/{id}/metrics` | epoch 指标批量入库（幂等） |
+| `POST` | `/internal/tasks/{id}/checkpoints` | 登记 epoch checkpoint |
 
 ### curl 示例
 
