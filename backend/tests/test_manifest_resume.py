@@ -104,6 +104,8 @@ def test_rerun_reuses_task_and_preserves_attempts(client, ctx, payload):
     assert rerun["attempt"] == 2
     assert rerun["status"] == "pending"
     assert rerun["resume_from_task_id"] is None
+    assert rerun["max_runtime_seconds"] == ctx.settings.default_max_runtime_seconds
+    assert rerun["max_retries"] == ctx.settings.default_max_retries
 
     attempts = client.get(f"/api/v1/tasks/{task['id']}/attempts").json()
     assert attempts["total"] == 2

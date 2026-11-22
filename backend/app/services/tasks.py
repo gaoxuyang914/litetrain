@@ -534,6 +534,8 @@ class TaskService:
 
             original.manual_rerun_count = previous_attempt
             original.retry_count = 0
+            original.max_runtime_seconds = self._runtime_cap()
+            original.max_retries = self._retry_cap()
             original.status = TaskStatus.PENDING.value
             original.queued_at = utcnow()
             original.started_at = None
