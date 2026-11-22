@@ -87,7 +87,7 @@ def test_task_distribution_time_windows(client, payload):
     assert half_year.json()["label"] == "近半年"
 
 
-def test_rerun_clones_finished_task(client, ctx, payload):
+def test_rerun_reuses_task_and_preserves_attempts(client, ctx, payload):
     from app.models import Task
 
     task = create_task(client, payload)
@@ -99,20 +99,27 @@ def test_rerun_clones_finished_task(client, ctx, payload):
     response = client.post(f"/api/v1/tasks/{task['id']}/rerun")
     assert response.status_code == 201, response.text
     rerun = response.json()
-    assert rerun["id"] != task["id"]
-    assert rerun["name"].endswith("rerun")
-    assert rerun["epochs"] == task["epochs"]
-    assert rerun["cpu_cores"] == task["cpu_cores"]
+    assert rerun["id"] == task["id"]
+    assert rerun["name"] == task["name"] == "unit smoke"
+    assert rerun["attempt"] == 2
+    assert rerun["status"] == "pending"
     assert rerun["resume_from_task_id"] is None
 
+    attempts = client.get(f"/api/v1/tasks/{task['id']}/attempts").json()
+    assert attempts["total"] == 2
+    assert [item["status"] for item in attempts["items"]] == ["cancelled", "pending"]
+    assert [item["attempt"] for item in attempts["items"]] == [1, 2]
+
     with ctx.db.session() as session:
-        row = session.get(Task, rerun["id"])
+        row = session.get(Task, task["id"])
         assert row is not None
         row.status = "cancelled"
         session.flush()
-    second = client.post(f"/api/v1/tasks/{rerun['id']}/rerun")
-    assert second.status_code == 201, second.text
-    assert second.json()["name"] == rerun["name"] == "unit smoke · rerun"
+    rerun_again = client.post(f"/api/v1/tasks/{task['id']}/rerun")
+    assert rerun_again.status_code == 201, rerun_again.text
+    assert rerun_again.json()["id"] == task["id"]
+    assert rerun_again.json()["attempt"] == 3
+    assert client.get(f"/api/v1/tasks/{task['id']}/attempts").json()["total"] == 3
 
 
 def test_unregistered_dataset_cannot_bypass_quality_gate(client, payload):

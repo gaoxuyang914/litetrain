@@ -70,6 +70,7 @@ class Task(Base):
     max_runtime_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=1800)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    manual_rerun_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Dataset / reproducibility
     dataset_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
@@ -116,7 +117,7 @@ class Task(Base):
 
     @property
     def attempt(self) -> int:
-        return self.retry_count + 1
+        return self.retry_count + self.manual_rerun_count + 1
 
     @property
     def status_enum(self) -> TaskStatus:
@@ -184,9 +185,30 @@ class ResourceAllocation(Base):
     released_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class TaskAttempt(Base):
+    __tablename__ = "task_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(
+        String(24), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    runtime_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(600), nullable=True)
+    progress: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    cpu_cores: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    __table_args__ = (
+        UniqueConstraint("task_id", "attempt", name="uq_task_attempt_number"),
+    )
+
+
 class TaskMetric(Base):
     __tablename__ = "task_metrics"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     task_id: Mapped[str] = mapped_column(
         String(24), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True

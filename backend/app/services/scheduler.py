@@ -389,6 +389,7 @@ class Scheduler:
                 f"(priority {live_high.priority}); latest checkpoint epoch {checkpoint_epoch}; "
                 "creating a resume task",
             )
+            self.tasks.record_attempt(session, live_low)
             session.flush()
             low_id = live_low.id
             high_id = live_high.id
@@ -477,6 +478,7 @@ class Scheduler:
                     self.execution.actor_name(task) if self.execution.backend == "ray" else None
                 )
                 self.resources.create_allocation(session, task, node)
+                self.tasks.record_attempt(session, task)
                 add_event(
                     session,
                     task.id,
@@ -573,6 +575,13 @@ class Scheduler:
             message = f"Training succeeded in {duration}s"
             level = "success"
         elif retry:
+            # Record the failed attempt before incrementing the retry counter;
+            # the next attempt gets its own history row.
+            task.status = TaskStatus.FAILED.value
+            task.exit_code = exit_code
+            task.failure_reason = failure_reason
+            task.finished_at = now
+            self.tasks.record_attempt(session, task)
             # A new attempt must not inherit the previous attempt's result
             # marker or epoch metric points (unique by task/name/epoch).
             try:
@@ -611,6 +620,7 @@ class Scheduler:
             level = "error"
 
         add_event(session, task.id, event_type, message, level=level)
+        self.tasks.record_attempt(session, task)
         session.flush()
         if status is TaskStatus.SUCCEEDED:
             self.log_store.append(
@@ -711,6 +721,7 @@ class Scheduler:
                     + ("; running worker was terminated" if was_running else "; task left the queue"),
                     level="warning",
                 )
+                self.tasks.record_attempt(session, task)
                 session.flush()
                 self.log_store.append(
                     task.id,

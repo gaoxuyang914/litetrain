@@ -14,6 +14,7 @@ import type {
   Task,
   TaskCheckpoint,
   TaskCheckpointList,
+  TaskAttempt,
   TaskCompareResponse,
   TaskCreatePayload,
   TaskDistribution,
@@ -210,6 +211,13 @@ export const api = {
   async getTaskCheckpoints(taskId: string): Promise<TaskCheckpointList> {
     const { data } = await http.get<TaskCheckpointList>(`/tasks/${taskId}/checkpoints`)
     return data
+  },
+
+  async getTaskAttempts(taskId: string): Promise<TaskAttempt[]> {
+    const { data } = await http.get<{ items: TaskAttempt[]; total: number }>(
+      `/tasks/${taskId}/attempts`,
+    )
+    return data.items
   },
 
   async resumeTask(

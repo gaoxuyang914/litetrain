@@ -122,6 +122,18 @@ export interface TaskCheckpointList {
   fallback_available: boolean
 }
 
+export interface TaskAttempt {
+  attempt: number
+  status: TaskStatus
+  started_at: string | null
+  finished_at: string | null
+  runtime_seconds: number | null
+  exit_code: number | null
+  failure_reason: string | null
+  progress: number
+  cpu_cores: number
+}
+
 export interface TaskManifest {
   task_id: string
   manifest: {

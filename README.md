@@ -21,7 +21,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | README | 本文件：环境依赖、快速开始、架构图、HTTP 接口、测试与验收、已知边界 |
 | 可运行演示 | `scripts/setup.ps1` → `scripts/start_ray.ps1` → `scripts/start_backend.ps1` → `scripts/start_frontend.ps1`；黑盒验收脚本 `scripts/e2e_live.py` |
 | 规格与设计文档 | [docs/README.md](docs/README.md)：SDD 需求规格、技术实现设计、TDD 测试规格与验收矩阵 |
-| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，24 张真实运行截图 |
+| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，25 张真实运行截图 |
 | CI | [.github/workflows/ci.yml](.github/workflows/ci.yml)，GitHub Actions 后端测试 + 平台/后台前端 typecheck/build |
 
 ---
@@ -108,7 +108,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 - 统计口径为任务提交时间，数据由 `/api/v1/cluster/task-distribution` 直接从 SQLite 聚合。
 - 提交页只列出已登记数据集；未登记 YAML 即使存在于数据目录，也会被 **422** 拒绝，避免绕过质量检查。
 - 任务详情可一键跳转到「模型产物」并按任务过滤；产物页支持按产物名、任务 ID、SHA-256 搜索和 kind 筛选。
-- 已结束任务支持一键 **重跑**：复制原任务的模型、数据、超参数、CPU 配额和优先级，创建新任务并保留来源；重跑/恢复名称只保留一层 `· rerun` / `· resume` 后缀，不继续叠加。
+- 已结束任务支持一键 **在原任务上重跑**：不创建新任务 ID，不追加 `· rerun` 名称；任务回到 `pending`，`attempt` 递增，原日志保留并追加 `MANUAL RERUN` 分隔线；任务详情展示每次运行历史。
 - 失败/取消任务支持 **从断点继续**：选择具体 checkpoint，可选完整恢复（优化器、学习率、epoch 进度）或仅加载权重；数据集哈希变化会拒绝恢复。完整恢复结束后会把 `best.pt / last.pt / results.csv / args.yaml` 同步回新任务目录，保证产物页可见。
 
 ### 额外实现
@@ -154,7 +154,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 ![Webhook](docs/screenshots/webhooks.png)
 
-更多截图：登录 [login.png](docs/screenshots/login.png)、后台管理 [admin.png](docs/screenshots/admin.png)、任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、超限提醒 [task-limits.png](docs/screenshots/task-limits.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
+更多截图：登录 [login.png](docs/screenshots/login.png)、后台管理 [admin.png](docs/screenshots/admin.png)、任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、超限提醒 [task-limits.png](docs/screenshots/task-limits.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、原任务重跑历史 [rerun-inplace.png](docs/screenshots/rerun-inplace.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
 
 > 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.5 Ultralytics-style workspace**：白色侧栏与任务搜索、蓝色品牌、细边框浅色卡片、黑色主按钮、浅色集群拓扑、数据质量准入和运行清单；字号、对比度、焦点和 reduced-motion 均按 `deepseek-frontend-design` 技能自检。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
 
@@ -671,7 +671,8 @@ Base：`http://127.0.0.1:8000/api/v1`；完整 OpenAPI 在 `/docs`。
 | `GET` | `/tasks/{id}/manifest` | Run Manifest（数据/模型哈希、环境、Git） |
 | `GET` | `/tasks/{id}/checkpoints` | Checkpoint 列表与 `fallback_available` |
 | `POST` | `/tasks/{id}/resume` | 从指定 checkpoint 继续（`mode=full/weights`） |
-| `POST` | `/tasks/{id}/rerun` | 按原配置创建重跑任务 |
+| `POST` | `/tasks/{id}/rerun` | 在原任务上重跑：attempt+1、历史保留、不新建任务 |
+| `GET` | `/tasks/{id}/attempts` | 原任务的手动重跑/自动重试运行历史 |
 | `GET` | `/tasks/compare?ids=a,b` | 2–4 个任务对比 |
 
 ### 集群与多节点

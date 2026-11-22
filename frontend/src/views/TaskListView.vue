@@ -103,7 +103,7 @@ async function batchRerun() {
   }
   try {
     await ElMessageBox.confirm(
-      `将按相同配置重跑 ${candidates.length} 个已结束任务，是否继续？`,
+      `将在这 ${candidates.length} 个原任务上重跑，历史记录会保留，是否继续？`,
       '批量重跑',
       { confirmButtonText: '重跑', cancelButtonText: '取消', type: 'warning' },
     )
@@ -121,8 +121,8 @@ async function batchRerun() {
     } else {
       await fetchTasks()
     }
-    if (failed) ElMessage.warning(`已创建 ${ok} 个重跑任务，${failed} 个失败`)
-    else ElMessage.success(`已创建 ${ok} 个重跑任务`)
+    if (failed) ElMessage.warning(`已在 ${ok} 个原任务上重跑，${failed} 个失败`)
+    else ElMessage.success(`已在 ${ok} 个原任务上重跑，历史保留`)
   } finally {
     batchRerunning.value = false
   }

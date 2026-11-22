@@ -31,6 +31,7 @@ measure 4.5:1–19.0:1.
 | `settings.png` | Runtime settings for timeout, heartbeat, retries and CPU quota |
 | `task-limits.png` | Submit form warning when a value exceeds the admin runtime cap |
 | `preemption.png` | Cancelled preempted task with checkpoint resume hint |
+| `rerun-inplace.png` | Same task rerun with attempt history preserved |
 | `benchmark.png` | CPU benchmark result and selected thread/worker profile |
 | `compare.png` | Two-run comparison with dataset compatibility warning |
 | `distribution.png` | Expanded task status distribution with 5m–180d range selector |

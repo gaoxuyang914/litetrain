@@ -28,6 +28,7 @@ import { useNotifications } from '@/composables/useNotifications'
 import { useAuth } from '@/composables/useAuth'
 import type {
   Task,
+  TaskAttempt,
   TaskCheckpoint,
   TaskCheckpointList,
   TaskEvent,
@@ -55,6 +56,7 @@ const task = ref<Task | null>(null)
 const metrics = ref<TaskMetrics | null>(null)
 const events = ref<TaskEvent[]>([])
 const manifest = ref<TaskManifest | null>(null)
+const attempts = ref<TaskAttempt[]>([])
 const checkpoints = ref<TaskCheckpoint[]>([])
 const checkpointFallback = ref(false)
 const loading = ref(true)
@@ -165,8 +167,8 @@ async function rerunTask() {
   rerunning.value = true
   try {
     const rerun = await api.rerunTask(task.value.id)
-    ElMessage.success(`已按相同配置重跑，任务 ${rerun.id}`)
-    router.push({ name: 'task-detail', params: { id: rerun.id } })
+    ElMessage.success(`已在原任务上重跑，当前为第 ${rerun.attempt} 次运行`)
+    await loadAll(false)
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : '重跑任务失败')
   } finally {
@@ -206,8 +208,12 @@ const summaryStats = computed(() => {
     {
       label: '执行尝试',
       value: `${task.value.attempt}`,
-      unit: `/ ${task.value.max_retries + 1}`,
-      hint: task.value.retry_count ? `已自动重试 ${task.value.retry_count} 次` : '首次尝试',
+      unit: '次运行',
+      hint: task.value.retry_count
+        ? `已自动重试 ${task.value.retry_count} 次`
+        : task.value.attempt > 1
+          ? '包含手动重跑，历史保留'
+          : '首次尝试',
       icon: Refresh,
     },
     {
@@ -285,16 +291,18 @@ async function loadAll(initial = false) {
       api.getTaskEvents(taskId.value).catch(() => [] as TaskEvent[]),
     ])
     if (seq !== requestSeq) return
-    const [manifestData, checkpointData] = await Promise.all([
+    const [manifestData, checkpointData, attemptData] = await Promise.all([
       api.getTaskManifest(taskId.value).catch(() => null),
       api.getTaskCheckpoints(taskId.value).catch(
         () => ({ items: [], total: 0, fallback_available: false }) as TaskCheckpointList,
       ),
+      api.getTaskAttempts(taskId.value).catch(() => [] as TaskAttempt[]),
     ])
     if (seq !== requestSeq) return
     manifest.value = manifestData
     checkpoints.value = checkpointData.items
     checkpointFallback.value = checkpointData.fallback_available
+    attempts.value = attemptData
     if (metricData) {
       metrics.value = metricData
       metricsError.value = null
@@ -801,6 +809,30 @@ onBeforeUnmount(() => stopPolling())
             </div>
           </section>
       </div>
+
+      <section v-if="attempts.length" class="panel attempt-history">
+        <div class="panel-head">
+          <div>
+            <h2>运行历史</h2>
+            <p class="panel-caption">同一个任务 ID 下的手动重跑和自动重试记录</p>
+          </div>
+          <span class="tag-soft">{{ attempts.length }} 次运行</span>
+        </div>
+        <div class="attempt-list">
+          <div v-for="attempt in attempts" :key="attempt.attempt" class="attempt-row">
+            <div class="attempt-index">
+              <strong>第 {{ attempt.attempt }} 次</strong>
+              <span>{{ statusMeta[attempt.status].label }}</span>
+            </div>
+            <div class="attempt-meta">
+              <span>{{ formatDate(attempt.started_at) }}</span>
+              <span>{{ formatDuration(attempt.runtime_seconds) }}</span>
+              <span class="mono">{{ attempt.cpu_cores }} 核</span>
+            </div>
+            <span class="attempt-reason mono">{{ attempt.failure_reason || (attempt.status === 'succeeded' ? '完成' : '—') }}</span>
+          </div>
+        </div>
+      </section>
     </template>
 
     <el-dialog
@@ -2315,6 +2347,72 @@ onBeforeUnmount(() => stopPolling())
   border-color: color-mix(in srgb, var(--amber) 28%, var(--border));
   background: var(--amber-soft);
   color: var(--amber);
+}
+
+.attempt-history {
+  margin-top: 2px;
+}
+
+.attempt-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.attempt-row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) minmax(160px, 0.8fr);
+  gap: 16px;
+  align-items: center;
+  padding: 12px 18px;
+}
+
+.attempt-row + .attempt-row {
+  border-top: 1px solid var(--border);
+}
+
+.attempt-index {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.attempt-index strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.attempt-index span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.attempt-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 13px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.attempt-reason {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .attempt-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+  }
+
+  .attempt-reason {
+    text-align: left;
+  }
 }
 
 .resume-modes {

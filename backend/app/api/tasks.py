@@ -16,6 +16,7 @@ from app.schemas import (
     LogChunk,
     ResumeTaskRequest,
     RunManifestOut,
+    TaskAttemptListResponse,
     TaskCheckpointListResponse,
     TaskCompareResponse,
     TaskCreate,
@@ -133,6 +134,18 @@ def get_task_checkpoints(
 ) -> TaskCheckpointListResponse:
     try:
         return ctx.tasks.checkpoints(task_id)
+    except TaskNotFoundError as exc:
+        raise _not_found(task_id) from exc
+
+
+@router.get(
+    "/{task_id}/attempts",
+    response_model=TaskAttemptListResponse,
+    summary="Attempt history for a task",
+)
+def get_task_attempts(task_id: str, ctx: AppContext = Depends(get_ctx)) -> TaskAttemptListResponse:
+    try:
+        return ctx.tasks.attempts(task_id)
     except TaskNotFoundError as exc:
         raise _not_found(task_id) from exc
 

@@ -103,6 +103,7 @@ class Database:
                 "resume_mode": "VARCHAR(16)",
                 "checkpoint_epoch": "INTEGER",
                 "stop_reason": "VARCHAR(40)",
+                "manual_rerun_count": "INTEGER NOT NULL DEFAULT 0",
                 "preempted_by_task_id": "VARCHAR(24)",
                 "preempted_at": "DATETIME",
                 "preempt_count": "INTEGER NOT NULL DEFAULT 0",

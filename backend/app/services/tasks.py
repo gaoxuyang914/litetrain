@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -21,6 +21,7 @@ from app.models import (
     ResourceSample,
     RunManifest,
     Task,
+    TaskAttempt,
     TaskCheckpoint,
     TaskEvent,
     TaskMetric,
@@ -30,6 +31,8 @@ from app.schemas import (
     MetricPoint,
     MetricSeries,
     ResourcePoint,
+    TaskAttemptListResponse,
+    TaskAttemptOut,
     TaskCheckpointListResponse,
     TaskCheckpointOut,
     TaskCompareItem,
@@ -345,6 +348,7 @@ class TaskService:
                 "submitted",
                 f"Task submitted with {task.cpu_cores} CPU core(s), priority {task.priority}",
             )
+            self.record_attempt(session, task)
             session.flush()
 
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -373,6 +377,74 @@ class TaskService:
             .order_by(Task.priority.desc(), Task.submitted_at.asc())
         ).all()
         return {task_id: index + 1 for index, task_id in enumerate(pending)}
+
+    def record_attempt(self, session: Session, task: Task) -> TaskAttempt:
+        """Persist a snapshot of the current attempt without replacing its log."""
+        row = session.scalar(
+            select(TaskAttempt).where(
+                TaskAttempt.task_id == task.id,
+                TaskAttempt.attempt == task.attempt,
+            )
+        )
+        if row is None:
+            row = TaskAttempt(
+                task_id=task.id,
+                attempt=task.attempt,
+                status=task.status,
+                cpu_cores=task.cpu_cores,
+            )
+            session.add(row)
+        row.status = task.status
+        row.started_at = task.started_at
+        row.finished_at = task.finished_at
+        row.runtime_seconds = runtime_seconds(task)
+        row.exit_code = task.exit_code
+        row.failure_reason = task.failure_reason
+        row.progress = task.progress
+        row.cpu_cores = task.cpu_cores
+        session.flush()
+        return row
+
+    def attempts(self, task_id: str) -> TaskAttemptListResponse:
+        with self.db.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise TaskNotFoundError(task_id)
+            rows = session.scalars(
+                select(TaskAttempt)
+                .where(TaskAttempt.task_id == task_id)
+                .order_by(TaskAttempt.attempt.asc())
+            ).all()
+            if not rows:
+                rows = [
+                    TaskAttempt(
+                        task_id=task.id,
+                        attempt=task.attempt,
+                        status=task.status,
+                        started_at=task.started_at,
+                        finished_at=task.finished_at,
+                        runtime_seconds=runtime_seconds(task),
+                        exit_code=task.exit_code,
+                        failure_reason=task.failure_reason,
+                        progress=task.progress,
+                        cpu_cores=task.cpu_cores,
+                    )
+                ]
+            items = [
+                TaskAttemptOut(
+                    attempt=row.attempt,
+                    status=TaskStatus(row.status),
+                    started_at=row.started_at,
+                    finished_at=row.finished_at,
+                    runtime_seconds=row.runtime_seconds,
+                    exit_code=row.exit_code,
+                    failure_reason=row.failure_reason,
+                    progress=row.progress,
+                    cpu_cores=row.cpu_cores,
+                )
+                for row in rows
+            ]
+            return TaskAttemptListResponse(items=items, total=len(items))
 
     def _to_schema(self, task: Task, queue_position: int | None = None) -> TaskOut:
         serialized = TaskOut.model_validate(task)
@@ -439,53 +511,77 @@ class TaskService:
             )
 
     def rerun(self, task_id: str) -> TaskOut:
-        original = self.get_model(task_id)
-        if original.status not in {
-            TaskStatus.SUCCEEDED.value,
-            TaskStatus.FAILED.value,
-            TaskStatus.CANCELLED.value,
-        }:
-            raise TaskValidationError("only finished tasks can be rerun", 409)
-        try:
-            config = json.loads(original.config_json or "{}")
-        except json.JSONDecodeError:
-            config = {}
-        dataset = config.get("dataset") or original.dataset
-        payload = TaskCreate(
-            name=f"{_base_task_name(original.name)} · rerun",
-            model=original.model,
-            dataset=dataset,
-            dataset_id=original.dataset_id,
-            quality_ack=True,
-            epochs=original.epochs,
-            imgsz=original.imgsz,
-            batch_size=original.batch_size,
-            workers=original.workers,
-            cpu_cores=original.cpu_cores,
-            compute_threads=original.compute_threads,
-            cache_mode=original.cache_mode,
-            seed=original.seed,
-            patience=original.patience,
-            save_period=original.save_period,
-            priority=original.priority,
-            max_runtime_seconds=min(original.max_runtime_seconds, self._runtime_cap()),
-            max_retries=min(original.max_retries, self._retry_cap()),
-            notes=f"rerun of {task_id}",
-        )
-        created = self.create(payload)
+        """Rerun the same task in place, preserving its attempt history and log."""
         with self.db.session() as session:
-            task = session.get(Task, created.id)
-            if task is None:
-                raise TaskNotFoundError(created.id)
+            original = session.get(Task, task_id)
+            if original is None:
+                raise TaskNotFoundError(task_id)
+            if original.status not in {
+                TaskStatus.SUCCEEDED.value,
+                TaskStatus.FAILED.value,
+                TaskStatus.CANCELLED.value,
+            }:
+                raise TaskValidationError("only finished tasks can be rerun", 409)
+
+            previous_attempt = original.attempt
+            self.record_attempt(session, original)
             try:
-                stored = json.loads(task.config_json or "{}")
+                Path(original.result_path).unlink(missing_ok=True)
+            except OSError:
+                logger.warning("could not reset result marker for %s", task_id)
+            session.execute(delete(TaskMetric).where(TaskMetric.task_id == task_id))
+            session.execute(delete(ResourceSample).where(ResourceSample.task_id == task_id))
+
+            original.manual_rerun_count = previous_attempt
+            original.retry_count = 0
+            original.status = TaskStatus.PENDING.value
+            original.queued_at = utcnow()
+            original.started_at = None
+            original.finished_at = None
+            original.last_heartbeat_at = None
+            original.cancel_requested_at = None
+            original.exit_code = None
+            original.failure_reason = None
+            original.stop_reason = None
+            original.progress = 0.0
+            original.executor = None
+            original.ray_actor_name = None
+            original.pid = None
+            original.pid_create_time = None
+            original.latest_cpu_percent = None
+            original.latest_memory_mb = None
+            original.preempted_by_task_id = None
+            original.preempted_at = None
+            original.preempt_count = 0
+            original.worker_token = secrets.token_urlsafe(32)
+            try:
+                config = json.loads(original.config_json or "{}")
             except json.JSONDecodeError:
-                stored = {}
-            stored["rerun_of"] = task_id
-            task.config_json = json.dumps(stored, ensure_ascii=False)
-            add_event(session, task.id, "rerun", f"Rerun of {task_id}")
+                config = {}
+            config["last_rerun_attempt"] = previous_attempt
+            original.config_json = json.dumps(config, ensure_ascii=False)
+
+            add_event(
+                session,
+                task_id,
+                "rerun",
+                f"Manual rerun of attempt {previous_attempt}; new attempt "
+                f"{previous_attempt + 1} queued on the same task",
+            )
             session.flush()
-        return self.get(created.id)
+            self.record_attempt(session, original)
+            session.flush()
+        self.log_store.append(
+            task_id,
+            "=" * 78,
+        )
+        self.log_store.append(
+            task_id,
+            f"[platform] MANUAL RERUN · previous attempt {previous_attempt} · "
+            f"new attempt {previous_attempt + 1} · same task id",
+        )
+        self.broker.publish("task.rerun", task_id, {"previous_attempt": previous_attempt})
+        return self.get(task_id)
 
     def resume(
         self,

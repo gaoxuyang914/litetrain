@@ -295,6 +295,23 @@ class TaskCheckpointListResponse(BaseModel):
     fallback_available: bool = False
 
 
+class TaskAttemptOut(BaseModel):
+    attempt: int
+    status: TaskStatus
+    started_at: OptionalUtcDateTime = None
+    finished_at: OptionalUtcDateTime = None
+    runtime_seconds: int | None = None
+    exit_code: int | None = None
+    failure_reason: str | None = None
+    progress: float = 0.0
+    cpu_cores: int = 1
+
+
+class TaskAttemptListResponse(BaseModel):
+    items: list[TaskAttemptOut]
+    total: int
+
+
 class ResumeTaskRequest(BaseModel):
     mode: str = Field(default="full", pattern=r"^(full|weights)$")
     checkpoint_epoch: int | None = Field(default=None, ge=0, le=100_000)
