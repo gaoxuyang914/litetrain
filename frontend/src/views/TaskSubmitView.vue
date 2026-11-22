@@ -27,6 +27,13 @@ const datasets = ref<Dataset[]>([])
 const loadingOptions = ref(true)
 const pageError = ref<string | null>(null)
 const submitting = ref(false)
+const usePreprocess = ref(false)
+const preprocessPolicy = reactive({
+  max_images: 24,
+  val_ratio: 0.2,
+  seed: 42,
+  dedupe: true,
+})
 const previewing = ref(false)
 const preview = ref<PreviewResponse | null>(null)
 const previewError = ref<string | null>(null)
@@ -261,6 +268,39 @@ async function submit() {
   }
   submitting.value = true
   try {
+    if (usePreprocess.value) {
+      if (datasetRecord.value?.quality_status === 'warning') {
+        await api.acknowledgeDatasetQuality(datasetRecord.value.id, '在任务提交页确认后用于流水线')
+      }
+      const pipeline = await api.createPipeline({
+        name: form.name?.trim() || undefined,
+        source_dataset: form.dataset,
+        model: form.model,
+        epochs: form.epochs,
+        imgsz: form.imgsz,
+        batch_size: form.batch_size,
+        workers: form.workers,
+        cpu_cores: form.cpu_cores,
+        priority: form.priority,
+        max_runtime_seconds: form.max_runtime_seconds,
+        max_retries: form.max_retries,
+        max_images: preprocessPolicy.max_images,
+        val_ratio: preprocessPolicy.val_ratio,
+        seed: preprocessPolicy.seed,
+        dedupe: preprocessPolicy.dedupe,
+        eval_split: 'val',
+        eval_conf: 0.001,
+        eval_iou: 0.6,
+        eval_max_det: 300,
+        notes: form.notes?.trim() || undefined,
+      })
+      ElMessage.success({
+        message: `流水线 ${pipeline.id} 已创建，预处理阶段进入队列`,
+        duration: 3200,
+      })
+      router.push({ name: 'pipelines' })
+      return
+    }
     const task = await api.createTask(normalizedPayload())
     ElMessage.success({
       message: `任务 ${task.id} 已提交，正在进入调度队列`,
@@ -475,33 +515,76 @@ onBeforeUnmount(() => {
 
               <div
                 v-if="datasetRecord"
-                class="quality-gate span-2"
+                class="data-prep span-2"
                 :class="{
                   blocked: qualityBlocked,
                   warning: datasetRecord.quality_status === 'warning',
                 }"
               >
-                <div>
-                  <strong>数据质量：{{ qualityLabel }}</strong>
-                  <span v-if="qualityBlocked">
-                    该数据集尚未通过体检，请到数据与产物页处理后再提交。
-                  </span>
-                  <span v-else-if="datasetRecord.quality_status === 'warning'">
-                    存在警告项，确认后才能训练。建议先查看质量报告。
-                  </span>
-                  <span v-else>
-                    {{ datasetRecord.image_count }} 张图 / {{ datasetRecord.label_count }} 个标签，可以进入训练。
-                  </span>
+                <div class="data-prep-head">
+                  <div>
+                    <span class="soft-label">数据准备</span>
+                    <strong>数据质量：{{ qualityLabel }}</strong>
+                    <span v-if="qualityBlocked">
+                      该数据集尚未通过体检，请到数据与产物页处理后再提交。
+                    </span>
+                    <span v-else-if="datasetRecord.quality_status === 'warning'">
+                      存在警告项，确认后才能进入训练或流水线。
+                    </span>
+                    <span v-else>
+                      {{ datasetRecord.image_count }} 张图 / {{ datasetRecord.label_count }} 个标签，可以进入训练。
+                    </span>
+                  </div>
+                  <el-button text size="small" @click="router.push({ name: 'assets' })">
+                    查看报告
+                  </el-button>
                 </div>
-                <el-checkbox
-                  v-if="datasetRecord.quality_status === 'warning'"
-                  v-model="form.quality_ack"
-                >
-                  我已确认质量警告
-                </el-checkbox>
-                <el-button text size="small" @click="router.push({ name: 'assets' })">
-                  查看报告
-                </el-button>
+
+                <div class="data-prep-options">
+                  <el-checkbox
+                    v-if="datasetRecord.quality_status === 'warning'"
+                    v-model="form.quality_ack"
+                  >
+                    我已确认质量警告
+                  </el-checkbox>
+                  <label class="preprocess-toggle">
+                    <el-switch v-model="usePreprocess" />
+                    <span>
+                      <strong>使用预处理策略</strong>
+                      <small>去重、标签校验、固定种子切分后创建三阶段流水线</small>
+                    </span>
+                  </label>
+                </div>
+
+                <div v-if="usePreprocess" class="preprocess-grid">
+                  <label>
+                    <span>保留图片上限</span>
+                    <el-input-number v-model="preprocessPolicy.max_images" :min="2" :max="128" controls-position="right" class="full" />
+                  </label>
+                  <label>
+                    <span>验证集比例</span>
+                    <el-input-number
+                      v-model="preprocessPolicy.val_ratio"
+                      :min="0.05"
+                      :max="0.5"
+                      :step="0.05"
+                      :precision="2"
+                      controls-position="right"
+                      class="full"
+                    />
+                  </label>
+                  <label>
+                    <span>切分随机种子</span>
+                    <el-input-number v-model="preprocessPolicy.seed" :min="0" :max="2147483647" controls-position="right" class="full" />
+                  </label>
+                  <label class="preprocess-dedupe">
+                    <span>去重与标签校验</span>
+                    <div class="toggle-inline">
+                      <el-switch v-model="preprocessPolicy.dedupe" />
+                      <small>{{ preprocessPolicy.dedupe ? '开启' : '关闭' }}</small>
+                    </div>
+                  </label>
+                </div>
               </div>
 
               <el-form-item label="训练轮数">
@@ -642,11 +725,15 @@ onBeforeUnmount(() => {
           <div class="preview-head">
             <div>
               <span class="soft-label">执行预览</span>
-              <h2>任务预览</h2>
+              <h2>{{ usePreprocess ? '流水线预览' : '任务预览' }}</h2>
             </div>
             <span class="preview-status">
               <i></i>{{ options?.execution_backend === 'ray' ? 'Ray 执行器' : '本地 CPU' }}
             </span>
+          </div>
+
+          <div v-if="usePreprocess" class="preview-pipeline-stages">
+            <span>预处理</span><i>→</i><span>训练</span><i>→</i><span>评估</span>
           </div>
 
           <div class="preview-summary">
@@ -668,7 +755,7 @@ onBeforeUnmount(() => {
 
           <div class="preview-card">
             <div class="preview-card-head">
-              <span>训练命令</span>
+              <span>{{ usePreprocess ? '训练阶段命令' : '训练命令' }}</span>
               <button type="button" title="复制命令" @click="copyCommand">
                 <el-icon><CopyDocument /></el-icon>
               </button>
@@ -717,11 +804,11 @@ onBeforeUnmount(() => {
             :icon="Promotion"
             @click="submit"
           >
-            提交 YOLO 训练任务
+             {{ usePreprocess ? '创建预处理流水线' : '提交 YOLO 训练任务' }}
             <el-icon class="submit-arrow"><ArrowRight /></el-icon>
           </el-button>
           <p class="submit-hint">
-            提交即进入调度队列。可在任务列表实时跟进状态与日志。
+            {{ usePreprocess ? '将依次执行预处理 → 训练 → 评估，可在流水线页跟进阶段状态。' : '提交即进入调度队列。可在任务列表实时跟进状态与日志。' }}
           </p>
         </section>
       </aside>
@@ -1025,6 +1112,27 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   background: currentColor;
   animation: status-blink 2s ease-in-out infinite;
+}
+
+.preview-pipeline-stages {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--accent-line);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.preview-pipeline-stages i {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-style: normal;
+  font-weight: 400;
 }
 
 .preview-summary {
@@ -1590,51 +1698,130 @@ onBeforeUnmount(() => {
 </style>
 
 <style scoped>
-.quality-gate {
+.data-prep {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   margin: -2px 0 14px;
-  padding: 10px 12px;
+  padding: 13px 14px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 9px;
   background: var(--panel-soft);
 }
 
-.quality-gate > div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-
-.quality-gate strong {
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.quality-gate span {
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.quality-gate.blocked {
-  border-color: rgba(178, 61, 61, 0.22);
-  background: var(--red-soft);
-}
-
-.quality-gate.warning {
+.data-prep.warning {
   border-color: rgba(154, 106, 30, 0.24);
   background: var(--amber-soft);
 }
 
+.data-prep.blocked {
+  border-color: rgba(178, 61, 61, 0.22);
+  background: var(--red-soft);
+}
+
+.data-prep-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.data-prep-head > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.data-prep-head strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.data-prep-head span:not(.soft-label) {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.data-prep-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+
+.preprocess-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+
+.preprocess-toggle > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.preprocess-toggle strong {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.preprocess-toggle small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.preprocess-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.preprocess-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.preprocess-grid label > span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.preprocess-dedupe {
+  justify-content: flex-end;
+}
+
+.toggle-inline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+}
+
+.toggle-inline small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
 @media (max-width: 760px) {
-  .quality-gate {
-    align-items: flex-start;
-    flex-wrap: wrap;
+  .data-prep-head {
+    flex-direction: column;
+  }
+
+  .preprocess-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

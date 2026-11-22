@@ -18,6 +18,7 @@ measure 4.5:1–19.0:1.
 | `admin.png` | Dedicated admin console on port 5174 with independent session |
 | `tasks.png` | Task list with running task, status filters, pagination and row selection |
 | `submit.png` | YOLO CPU task form, quality gate, compute threads/cache and live preview |
+| `task-data-preparation.png` | Fused data quality and preprocessing policy with optional pipeline mode |
 | `detail.png` | Succeeded task with logs, metrics, run manifest and checkpoint |
 | `queue.png` | Pending task detail while both simulated nodes are occupied |
 | `dark.png` | Dark mode cluster overview |

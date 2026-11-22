@@ -21,7 +21,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | README | 本文件：环境依赖、快速开始、架构图、HTTP 接口、测试与验收、已知边界 |
 | 可运行演示 | `scripts/setup.ps1` → `scripts/start_ray.ps1` → `scripts/start_backend.ps1` → `scripts/start_frontend.ps1`；黑盒验收脚本 `scripts/e2e_live.py` |
 | 规格与设计文档 | [docs/README.md](docs/README.md)：SDD 需求规格、技术实现设计、TDD 测试规格与验收矩阵 |
-| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，31 张真实运行截图 |
+| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，32 张真实运行截图 |
 | CI | [.github/workflows/ci.yml](.github/workflows/ci.yml)，GitHub Actions 后端测试 + 平台/后台前端 typecheck/build |
 
 ---
@@ -111,6 +111,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 - 任务详情可一键跳转到「模型产物」并按任务过滤；产物页支持按产物名、任务 ID、SHA-256 搜索和 kind 筛选。
 - 已结束任务支持一键 **在原任务上重跑**：不创建新任务 ID，不追加 `· rerun` 名称，重跑时自动清理历史名称后缀；任务回到 `pending`，`attempt` 递增，原日志保留并追加 `MANUAL RERUN` 分隔线；任务详情展示每次运行历史。重跑会同步当前后台的**超时/重试上限**，不会沿用旧任务的限制快照。
 - 失败/取消任务支持 **从断点继续**：选择具体 checkpoint，可选完整恢复（优化器、学习率、epoch 进度）或仅加载权重；数据集哈希变化会拒绝恢复。完整恢复结束后会把 `best.pt / last.pt / results.csv / args.yaml` 同步回新任务目录，保证产物页可见。
+- **提交页数据准备融合**：数据质量与预处理策略放在同一个「数据准备」分区；打开「使用预处理策略」后可直接从提交页创建预处理 → 训练 → 评估流水线，质量警告在同一处确认。
 - 流水线 **预处理 v2**：扫描原数据、SHA-256 去重、标签格式/类别/坐标校验，按固定种子做可复现训练/验证切分，输出图片统计、类别分布和丢弃原因报告。
 - 流水线 **评估 v2**：支持选择 train/val、置信度/IoU/max-det，输出整体指标、逐类 AP50-95、CPU 延迟/FPS、阈值配置和 `evaluation.json` 报告。
 
@@ -177,7 +178,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 ![Webhook](docs/screenshots/webhooks.png)
 
-更多截图：登录 [login.png](docs/screenshots/login.png)、后台管理 [admin.png](docs/screenshots/admin.png)、任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、模型权重导入 [model-import.png](docs/screenshots/model-import.png)、超限提醒 [task-limits.png](docs/screenshots/task-limits.png)、流水线阶段报告 [pipeline-v2.png](docs/screenshots/pipeline-v2.png)、流水线配置 [pipeline-create-v2.png](docs/screenshots/pipeline-create-v2.png)、流水线超限 [pipeline-limits.png](docs/screenshots/pipeline-limits.png)、预处理详情 [preprocess-stage.png](docs/screenshots/preprocess-stage.png)、评估详情 [evaluate-stage.png](docs/screenshots/evaluate-stage.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、原任务重跑历史 [rerun-inplace.png](docs/screenshots/rerun-inplace.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
+更多截图：登录 [login.png](docs/screenshots/login.png)、后台管理 [admin.png](docs/screenshots/admin.png)、任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、数据准备融合 [task-data-preparation.png](docs/screenshots/task-data-preparation.png)、模型权重导入 [model-import.png](docs/screenshots/model-import.png)、超限提醒 [task-limits.png](docs/screenshots/task-limits.png)、流水线阶段报告 [pipeline-v2.png](docs/screenshots/pipeline-v2.png)、流水线配置 [pipeline-create-v2.png](docs/screenshots/pipeline-create-v2.png)、流水线超限 [pipeline-limits.png](docs/screenshots/pipeline-limits.png)、预处理详情 [preprocess-stage.png](docs/screenshots/preprocess-stage.png)、评估详情 [evaluate-stage.png](docs/screenshots/evaluate-stage.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、原任务重跑历史 [rerun-inplace.png](docs/screenshots/rerun-inplace.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
 
 > 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.5 Ultralytics-style workspace**：白色侧栏与任务搜索、蓝色品牌、细边框浅色卡片、黑色主按钮、浅色集群拓扑、数据质量准入和运行清单；字号、对比度、焦点和 reduced-motion 均按 `deepseek-frontend-design` 技能自检。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
 
