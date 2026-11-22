@@ -2501,4 +2501,16 @@ onBeforeUnmount(() => {
     flex-basis: auto;
   }
 }
+
+.pipeline-dialog :deep(.el-dialog__body) {
+  padding-top: 14px;
+}
+
+:global(.pipeline-dialog) {
+  margin-top: 10vh !important;
+}
+
+:global(.pipeline-dialog .el-dialog__body) {
+  padding-top: 14px !important;
+}
 </style>
