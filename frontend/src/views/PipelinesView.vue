@@ -448,7 +448,7 @@ onBeforeUnmount(() => {
           class="pipeline-search-input"
           clearable
           :prefix-icon="Search"
-          placeholder="搜索名称 / ID / 数据集 / 模型"
+          placeholder="搜索名称 / ID / 数据集"
           @keyup.enter="applyPipelineSearch"
           @clear="applyPipelineSearch"
         />
@@ -2400,13 +2400,9 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 4px;
   flex: 1 1 auto;
+  flex-wrap: wrap;
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.pipeline-status-chips::-webkit-scrollbar {
-  display: none;
+  overflow: visible;
 }
 
 .pipeline-status-chip {
@@ -2494,6 +2490,18 @@ onBeforeUnmount(() => {
 .pipeline-search-input {
   flex: 1;
   min-width: 0;
+}
+
+@media (max-width: 1250px) {
+  .pipeline-filter-panel {
+    flex-wrap: wrap;
+  }
+
+  .pipeline-search-wrap {
+    width: 100%;
+    flex-basis: auto;
+    min-width: 0;
+  }
 }
 
 @media (max-width: 900px) {
