@@ -13,7 +13,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
+from app.api.admin import router as admin_router
 from app.api.assets import artifacts_router, datasets_router
+from app.api.auth import router as auth_router
 from app.api.cluster import router as cluster_router
 from app.api.internal import router as internal_router
 from app.api.pipelines import router as pipelines_router
@@ -22,6 +24,7 @@ from app.api.tasks import router as tasks_router
 from app.api.webhooks import router as webhooks_router
 from app.config import Settings, get_settings
 from app.context import AppContext
+from app.services.auth import permissions_for
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +117,8 @@ def create_app(
     )
 
     prefix = settings.api_prefix
+    app.include_router(auth_router, prefix=prefix)
+    app.include_router(admin_router, prefix=prefix)
     app.include_router(tasks_router, prefix=prefix)
     app.include_router(cluster_router, prefix=prefix)
     app.include_router(internal_router, prefix=prefix)
@@ -122,6 +127,76 @@ def create_app(
     app.include_router(artifacts_router, prefix=prefix)
     app.include_router(webhooks_router, prefix=prefix)
     app.include_router(settings_router, prefix=prefix)
+
+    public_api = {
+        f"{prefix}/auth/login",
+    }
+
+    def required_permission(method: str, path: str) -> str:
+        if path.startswith(f"{prefix}/admin"):
+            return "admin.console"
+        if path == f"{prefix}/settings":
+            return "admin.settings"
+        if method in {"GET", "HEAD", "OPTIONS"}:
+            return "platform.view"
+        if path.startswith(f"{prefix}/tasks"):
+            if any(path.endswith(suffix) for suffix in ("/cancel", "/rerun", "/resume")):
+                return "platform.operate"
+            return "platform.submit"
+        if path.startswith(f"{prefix}/pipelines"):
+            if path.endswith("/cancel"):
+                return "platform.operate"
+            return "platform.submit"
+        if path.startswith(f"{prefix}/cluster"):
+            return "platform.operate"
+        if path.startswith(
+            (
+                f"{prefix}/datasets",
+                f"{prefix}/artifacts",
+                f"{prefix}/webhooks",
+            )
+        ):
+            return "platform.assets"
+        return "platform.operate"
+
+    @app.middleware("http")
+    async def auth_guard(request: Request, call_next):  # noqa: ANN001, ANN202
+        path = request.url.path
+        if request.method == "OPTIONS" or not path.startswith(f"{prefix}/"):
+            return await call_next(request)
+        if path in public_api or path.startswith(f"{prefix}/internal"):
+            return await call_next(request)
+        if not settings.auth_enabled:
+            request.state.user = None
+            request.state.auth_token = None
+            return await call_next(request)
+
+        authorization = request.headers.get("Authorization", "")
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            token = request.cookies.get("litetrain_session") or ""
+        if not token:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "请先登录"},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        user = ctx.auth.authenticate(token)
+        if user is None:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "登录已失效，请重新登录"},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        required = required_permission(request.method, path)
+        if required not in set(permissions_for(user.role)):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": f"当前账号缺少权限：{required}"},
+            )
+        request.state.user = user
+        request.state.auth_token = token
+        return await call_next(request)
 
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> JSONResponse:

@@ -37,6 +37,7 @@ def settings(tmp_workdir: Path) -> Settings:
         database_url=f"sqlite:///{(tmp_workdir / 'platform.db').as_posix()}",
         execution_mode="local",
         redis_enabled=False,
+        auth_enabled=False,
         serve_frontend=False,
         total_cpus=8,
         user_cpu_quota=8,

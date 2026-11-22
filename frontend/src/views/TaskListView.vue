@@ -15,6 +15,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { api } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge.vue'
+import { useAuth } from '@/composables/useAuth'
 import { useNotifications } from '@/composables/useNotifications'
 import type { Task, TaskCompareResponse, TaskListResponse, TaskStatus } from '@/types/task'
 import {
@@ -30,6 +31,8 @@ import {
 const router = useRouter()
 const route = useRoute()
 const { notify } = useNotifications()
+const auth = useAuth()
+const canOperate = computed(() => auth.hasPermission('platform.operate'))
 
 const response = ref<TaskListResponse | null>(null)
 const tasks = computed(() => response.value?.items ?? [])
@@ -342,6 +345,7 @@ onBeforeUnmount(() => {
           @click="fetchTasks()"
         />
         <el-button
+          v-if="canOperate"
           :icon="RefreshRight"
           :loading="batchRerunning"
           :disabled="selectedIds.length === 0"
@@ -350,6 +354,7 @@ onBeforeUnmount(() => {
           批量重跑
         </el-button>
         <el-button
+          v-if="canOperate"
           :icon="CircleClose"
           :loading="batchCancelling"
           :disabled="selectedIds.length === 0"
@@ -519,7 +524,7 @@ onBeforeUnmount(() => {
                     <el-icon><Document /></el-icon>
                   </button>
                 </el-tooltip>
-                <el-tooltip v-if="canCancel(row)" content="取消任务" placement="top">
+                <el-tooltip v-if="canOperate && canCancel(row)" content="取消任务" placement="top">
                   <button
                     class="row-action danger"
                     type="button"
@@ -573,7 +578,7 @@ onBeforeUnmount(() => {
               <span class="task-mobile-actions">
                 <el-button text size="small" @click="openDetail(row)">详情</el-button>
                 <el-button text size="small" @click="openLogs(row)">日志</el-button>
-                <el-button v-if="canCancel(row)" text size="small" type="danger" :loading="cancellingId === row.id" @click="cancelTask(row)">取消</el-button>
+                <el-button v-if="canOperate && canCancel(row)" text size="small" type="danger" :loading="cancellingId === row.id" @click="cancelTask(row)">取消</el-button>
               </span>
             </div>
           </article>

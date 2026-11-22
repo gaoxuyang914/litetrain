@@ -1,6 +1,12 @@
 import axios, { AxiosError } from 'axios'
 
 import type {
+  AuthUser,
+  LoginResponse,
+  UserCreatePayload,
+  UserUpdatePayload,
+} from '@/types/auth'
+import type {
   CancelResponse,
   ClusterOverview,
   LogChunk,
@@ -66,15 +72,65 @@ const http = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+export const AUTH_TOKEN_KEY = 'litetrain.auth.token'
+export const AUTH_USER_KEY = 'litetrain.auth.user'
+
+http.interceptors.request.use((config) => {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY)
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
 http.interceptors.response.use(
   (response) => response,
   (error: unknown) => {
     const status = error instanceof AxiosError ? error.response?.status ?? null : null
+    if (status === 401 && localStorage.getItem(AUTH_TOKEN_KEY)) {
+      const url = error instanceof AxiosError ? error.config?.url ?? '' : ''
+      if (!url.endsWith('/auth/login')) {
+        localStorage.removeItem(AUTH_TOKEN_KEY)
+        localStorage.removeItem(AUTH_USER_KEY)
+        if (window.location.pathname !== '/login') {
+          window.location.assign('/login')
+        }
+      }
+    }
     return Promise.reject(new ApiError(extractMessage(error), status))
   },
 )
 
 export const api = {
+  async login(username: string, password: string): Promise<LoginResponse> {
+    const { data } = await http.post<LoginResponse>('/auth/login', { username, password })
+    return data
+  },
+
+  async getMe(): Promise<AuthUser> {
+    const { data } = await http.get<AuthUser>('/auth/me')
+    return data
+  },
+
+  async logout(): Promise<void> {
+    await http.post('/auth/logout')
+  },
+
+  async listUsers(): Promise<AuthUser[]> {
+    const { data } = await http.get<{ items: AuthUser[]; total: number }>('/admin/users')
+    return data.items
+  },
+
+  async createUser(payload: UserCreatePayload): Promise<AuthUser> {
+    const { data } = await http.post<AuthUser>('/admin/users', payload)
+    return data
+  },
+
+  async updateUser(userId: string, payload: UserUpdatePayload): Promise<AuthUser> {
+    const { data } = await http.patch<AuthUser>(`/admin/users/${userId}`, payload)
+    return data
+  },
+
   async getOverview(): Promise<ClusterOverview> {
     const { data } = await http.get<ClusterOverview>('/cluster/overview')
     return data

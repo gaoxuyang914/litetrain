@@ -20,7 +20,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | 完整 Git 仓库 | [github.com/gaoxuyang914/litetrain](https://github.com/gaoxuyang914/litetrain)，`main` 分支，提交历史与版本标签见仓库 |
 | README | 本文件：环境依赖、快速开始、架构图、HTTP 接口、测试与验收、已知边界 |
 | 可运行演示 | `scripts/setup.ps1` → `scripts/start_ray.ps1` → `scripts/start_backend.ps1` → `scripts/start_frontend.ps1`；黑盒验收脚本 `scripts/e2e_live.py` |
-| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，21 张真实运行截图 |
+| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，23 张真实运行截图 |
 | CI | [.github/workflows/ci.yml](.github/workflows/ci.yml)，GitHub Actions 后端测试 + 前端 typecheck/build |
 
 ---
@@ -68,8 +68,8 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | 优先级调度与抢占 | `priority 0–100`，高优先级先调度；资源不足时可抢占低优先级任务：仅限有 checkpoint 的独立任务，原任务记为 `cancelled / preempted`，自动创建 resume 子任务；无 checkpoint、流水线任务或已抢占两次的任务不抢占 |
 | YOLO 指标 | Ultralytics `on_fit_epoch_end` 回调采集 loss / mAP / precision / recall / lr；存 SQLite；前端 ECharts 折线图 |
 | 失败自动重试 | `max_retries` 0–5；worker 异常、非 0 退出、启动失败可自动重试；超时/心跳超时/手动取消不重试 |
-| 单用户 CPU 配额 | `LITETRAIN_USER_CPU_QUOTA`；同时检查节点空闲量和用户已用量；左下角「运行设置」可动态调整 |
-| 运行设置面板 | 左下角「运行设置」：默认超时、心跳僵死阈值、默认重试、默认 CPU、单用户配额，保存后写入 SQLite 并即时生效 |
+| 单用户 CPU 配额 | `LITETRAIN_USER_CPU_QUOTA`；同时检查节点空闲量和用户已用量；由后台「运行设置」动态调整 |
+| 后台管理 | `/admin`：管理员创建账号、分配角色（管理员/操作员/只读）、启停账号、重置密码，并集中修改运行设置 |
 | 资源采样 | worker 随心跳上报进程树 CPU% / RSS / 进程数；任务级时间序列 |
 | 日志关键词高亮 | 终端内搜索高亮，不改变原始日志 |
 | 浏览器通知 | 可选开启；任务变为终态时通过 Notification API 通知 |
@@ -153,7 +153,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 ![Webhook](docs/screenshots/webhooks.png)
 
-更多截图：任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
+更多截图：登录 [login.png](docs/screenshots/login.png)、后台管理 [admin.png](docs/screenshots/admin.png)、任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
 
 > 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.5 Ultralytics-style workspace**：白色侧栏与任务搜索、蓝色品牌、细边框浅色卡片、黑色主按钮、浅色集群拓扑、数据质量准入和运行清单；字号、对比度、焦点和 reduced-motion 均按 `deepseek-frontend-design` 技能自检。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
 
@@ -367,15 +367,31 @@ npm install
 npm run dev
 ```
 
-### 8. 第一次任务
+### 8. 登录与后台管理
 
-1. 打开 `提交训练任务`。
+平台和后台都需要登录：
+
+```text
+平台：http://127.0.0.1:5173
+后台：http://127.0.0.1:5173/admin
+首次运行管理员：admin / admin123
+```
+
+- 管理员：可进入平台和后台，创建账号、分配角色、启停账号、重置密码、修改运行设置
+- 操作员：可提交、取消、抢占相关操作和管理资产
+- 只读成员：只能查看训练、日志和产物
+- 后台「运行设置」是唯一可修改默认超时、心跳阈值、默认重试、默认 CPU 和单用户配额的入口
+- 生产部署请通过 `LITETRAIN_BOOTSTRAP_ADMIN_PASSWORD` 覆盖默认密码
+
+### 9. 第一次任务
+
+1. 登录后打开 `提交训练任务`。
 2. 点击 **快速试跑 · 1 轮**，或保留默认 3 epochs / 160px。
 3. 点击 **提交 YOLO 训练任务**。
 4. 在任务详情页观察日志与指标；约 20–60 秒可看到 `succeeded`。
 5. 回到总览可看到 CPU 分配从 0 恢复为 0，资源已释放。
 
-### 9. 演示 P2
+### 10. 演示 P2
 
 **多节点模拟**：总览页 → 节点资源 → “多节点模拟”，输入 2 个节点各 4 CPU，应用后提交两个 3 CPU 任务，可看到两个节点各占 3/4。
 
@@ -610,6 +626,20 @@ stateDiagram-v2
 
 Base：`http://127.0.0.1:8000/api/v1`；完整 OpenAPI 在 `/docs`。
 
+除登录和 worker 内部回调外，所有 API 都需要 `Authorization: Bearer <token>`。
+
+### 登录与后台
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/auth/login` | 账号密码登录，返回 token 和权限 |
+| `GET` | `/auth/me` | 当前账号和权限 |
+| `POST` | `/auth/logout` | 注销当前 session |
+| `GET` | `/admin/users` | 管理员查看平台账号 |
+| `POST` | `/admin/users` | 管理员创建账号（admin/operator/viewer） |
+| `PATCH` | `/admin/users/{id}` | 修改角色、启停、重置密码 |
+| `GET/PATCH` | `/settings` | 仅管理员；运行策略 |
+
 ### 任务
 
 | 方法 | 路径 | 说明 |
@@ -683,6 +713,8 @@ Base：`http://127.0.0.1:8000/api/v1`；完整 OpenAPI 在 `/docs`。
 
 ### 运行设置
 
+仅管理员可访问；后台管理页面的「运行设置」也是唯一修改入口。
+
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/settings` | 当前运行策略、允许范围和最近更新时间 |
@@ -701,9 +733,15 @@ Base：`http://127.0.0.1:8000/api/v1`；完整 OpenAPI 在 `/docs`。
 ### curl 示例
 
 ```bash
+# 先登录，后续请求带 Bearer token
+TOKEN=$(curl -s http://127.0.0.1:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}' | python -c "import json,sys; print(json.load(sys.stdin)['token'])")
+
 # 提交 1 epoch 的快速任务
 curl -X POST http://127.0.0.1:8000/api/v1/tasks \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "name": "coco128 smoke",
     "model": "yolov8n.pt",
@@ -762,6 +800,10 @@ curl -X POST http://127.0.0.1:8000/api/v1/pipelines \
 | `LITETRAIN_RAY_NAMESPACE` | `litetrain` | detached actor namespace |
 | `LITETRAIN_REDIS_URL` | `redis://127.0.0.1:6379/0` | Redis |
 | `LITETRAIN_REDIS_PROTOCOL` | `2` | 兼容 Redis 5 |
+| `LITETRAIN_AUTH_ENABLED` | `true` | 平台与后台登录开关 |
+| `LITETRAIN_AUTH_SESSION_HOURS` | `12` | 登录 session 有效期 |
+| `LITETRAIN_BOOTSTRAP_ADMIN_USERNAME` | `admin` | 首次启动管理员账号 |
+| `LITETRAIN_BOOTSTRAP_ADMIN_PASSWORD` | `admin123` | 首次启动管理员密码，生产必须覆盖 |
 | `LITETRAIN_HEARTBEAT_INTERVAL_SECONDS` | `4` | worker 心跳周期 |
 | `LITETRAIN_HEARTBEAT_TIMEOUT_SECONDS` | `25` | 心跳超时阈值 |
 | `LITETRAIN_DEFAULT_MAX_RUNTIME_SECONDS` | `1800` | 表单默认超时 |
@@ -797,7 +839,7 @@ cd backend
 ..\.venv\Scripts\python -m pytest
 ```
 
-结果：**40 passed**。测试覆盖 P0/P1 + P2：
+结果：**41 passed**。测试覆盖 P0/P1 + P2：
 
 - 创建、分页、状态筛选、ID/名称搜索；
 - 表单选项和命令预览；
@@ -884,6 +926,8 @@ LATER          status=succeeded runtime=91s
 - **SQLite**：适合单机演示，不适合多 API 实例共享；真实多实例需迁移 Postgres 并加行级锁。
 - **流水线固定三阶段**：题目指定 preprocess → train → evaluate；没有通用 DAG 编辑器、分支或并行阶段。
 - **无鉴权/多租户**：题目是单用户演示；生产需要 OIDC/JWT、任务级权限和审计。
+- **认证**：密码使用 PBKDF2-SHA256 哈希；session token 存在 SQLite，可注销；前端 token 存在 localStorage，生产建议改为 HttpOnly Cookie。
+- **默认管理员密码**：首次启动为 `admin/admin123`；生产部署必须通过环境变量修改。
 - **抢占粒度**：只在 checkpoint 边界恢复；无 checkpoint 不抢占，当前 epoch 的进度会回退到最近 checkpoint。抢占只针对独立任务，不处理流水线阶段。
 - **数据集删除是软删除**：记录和原始归档保留；不做对象存储生命周期管理。
 - **Webhook 未做生产级 SSRF 防护**：只校验 http(s)；生产应增加内网/回环地址拦截、secret 加密和 dead-letter 重放。

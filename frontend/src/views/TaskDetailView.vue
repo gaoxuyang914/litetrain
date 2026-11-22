@@ -25,6 +25,7 @@ import LogTerminal from '@/components/LogTerminal.vue'
 import MetricsPanel from '@/components/MetricsPanel.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useNotifications } from '@/composables/useNotifications'
+import { useAuth } from '@/composables/useAuth'
 import type {
   Task,
   TaskCheckpoint,
@@ -47,6 +48,8 @@ import {
 const route = useRoute()
 const router = useRouter()
 const { notify } = useNotifications()
+const auth = useAuth()
+const canOperate = computed(() => auth.hasPermission('platform.operate'))
 
 const task = ref<Task | null>(null)
 const metrics = ref<TaskMetrics | null>(null)
@@ -465,7 +468,7 @@ onBeforeUnmount(() => stopPolling())
         <el-button :icon="Download" @click="downloadLog">下载日志</el-button>
         <el-button v-if="task" :icon="Box" @click="openArtifacts">模型产物</el-button>
         <el-button
-          v-if="task && terminal"
+          v-if="task && terminal && canOperate"
           :icon="RefreshRight"
           :loading="rerunning"
           @click="rerunTask"
@@ -473,14 +476,14 @@ onBeforeUnmount(() => stopPolling())
           重跑
         </el-button>
         <el-button
-          v-if="task && ['failed', 'cancelled'].includes(task.status)"
+          v-if="task && ['failed', 'cancelled'].includes(task.status) && canOperate"
           :icon="Refresh"
           @click="openResumeDialog()"
         >
           从断点继续
         </el-button>
         <el-button
-          v-if="task && !terminal"
+          v-if="task && !terminal && canOperate"
           type="danger"
           plain
           :icon="CircleClose"
@@ -723,7 +726,7 @@ onBeforeUnmount(() => stopPolling())
                 :key="checkpoint.epoch"
                 type="button"
                 class="checkpoint-row"
-                :disabled="!['failed', 'cancelled'].includes(task.status)"
+                :disabled="!canOperate || !['failed', 'cancelled'].includes(task.status)"
                 @click="openResumeDialog(checkpoint.epoch)"
               >
                 <span>Epoch {{ checkpoint.epoch }}</span>

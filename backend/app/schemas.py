@@ -181,6 +181,44 @@ class RuntimeSettingsUpdate(BaseModel):
     user_cpu_quota: int | None = Field(default=None, ge=1, le=256)
 
 
+class AuthUserOut(BaseModel):
+    id: str
+    username: str
+    role: str
+    permissions: list[str]
+    active: bool
+    created_at: UtcDateTime
+    last_login_at: OptionalUtcDateTime = None
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class LoginResponse(BaseModel):
+    token: str
+    expires_at: UtcDateTime
+    user: AuthUserOut
+
+
+class UserCreateRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=6, max_length=256)
+    role: str = Field(default="viewer", pattern=r"^(admin|operator|viewer)$")
+
+
+class UserUpdateRequest(BaseModel):
+    role: str | None = Field(default=None, pattern=r"^(admin|operator|viewer)$")
+    active: bool | None = None
+    password: str | None = Field(default=None, min_length=6, max_length=256)
+
+
+class UserListResponse(BaseModel):
+    items: list[AuthUserOut]
+    total: int
+
+
 class TaskPreviewResponse(BaseModel):
     command: str
     equivalent_yolo_command: str

@@ -131,6 +131,29 @@ class RuntimeSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(24), primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    role: Mapped[str] = mapped_column(String(24), nullable=False, default="viewer", index=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(24), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
 class Node(Base):
     __tablename__ = "nodes"
 

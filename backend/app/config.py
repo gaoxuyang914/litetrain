@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
 
+    # Authentication and administration
+    auth_enabled: bool = True
+    auth_session_hours: int = Field(default=12, ge=1, le=720)
+    bootstrap_admin_username: str = "admin"
+    bootstrap_admin_password: str = "admin123"
+
     # Storage
     data_dir: Path = BACKEND_DIR / "data"
     database_url: str = f"sqlite:///{(BACKEND_DIR / 'data' / 'platform.db').as_posix()}"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Bell,
@@ -12,37 +12,30 @@ import {
   Menu as MenuIcon,
   Moon,
   Search,
-  Setting,
   Share,
   Sunny,
+  SwitchButton,
   Tickets,
+  UserFilled,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
 import { api } from '@/api/client'
+import { useAuth } from '@/composables/useAuth'
 import { useNotifications } from '@/composables/useNotifications'
 import { useTheme } from '@/composables/useTheme'
-import type { ClusterOverview, RuntimeSettings } from '@/types/task'
+import type { ClusterOverview } from '@/types/task'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuth()
+const isAdmin = auth.isAdmin
 const { isDark, toggleTheme } = useTheme()
 const { enabled: notificationsEnabled, setEnabled } = useNotifications()
 
 const mobileNavOpen = ref(false)
 const navSearch = ref('')
 const overview = ref<ClusterOverview | null>(null)
-const settingsOpen = ref(false)
-const settingsLoading = ref(false)
-const settingsSaving = ref(false)
-const runtimeSettings = ref<RuntimeSettings | null>(null)
-const settingsForm = reactive({
-  default_max_runtime_seconds: 1800,
-  heartbeat_timeout_seconds: 25,
-  default_max_retries: 3,
-  default_cpu_cores: 4,
-  user_cpu_quota: 8,
-})
 const SIDEBAR_KEY = 'litetrain.sidebar.collapsed'
 const sidebarCollapsed = ref(localStorage.getItem(SIDEBAR_KEY) === '1')
 let statusTimer: number | undefined
@@ -61,13 +54,16 @@ function onShortcut(event: KeyboardEvent) {
   toggleSidebar()
 }
 
-const navGroups = [
+const navGroups: Array<{
+  label: string
+  items: Array<{ name: string; label: string; icon: typeof DataAnalysis; path: string; permission?: string }>
+}> = [
   {
     label: '工作台',
     items: [
       { name: 'overview', label: '集群总览', icon: DataAnalysis, path: '/overview' },
       { name: 'tasks', label: '任务列表', icon: Tickets, path: '/tasks' },
-      { name: 'task-submit', label: '提交任务', icon: MagicStick, path: '/tasks/new' },
+      { name: 'task-submit', label: '提交任务', icon: MagicStick, path: '/tasks/new', permission: 'platform.submit' },
     ],
   },
   {
@@ -93,6 +89,13 @@ const onlineNodeCount = computed(
 const cpuLabel = computed(
   () => `${overview.value?.cpu.allocated ?? 0} / ${overview.value?.cpu.total ?? '—'}`,
 )
+const userName = computed(() => auth.user.value?.username ?? '成员')
+const userInitial = computed(() => userName.value.slice(0, 1).toUpperCase())
+
+async function logout() {
+  await auth.logout()
+  await router.replace({ name: 'login' })
+}
 
 function isActive(name: string): boolean {
   if (name === 'tasks') return route.name === 'tasks'
@@ -121,54 +124,6 @@ async function toggleNotifications() {
     message: result.message,
     type: result.ok ? (notificationsEnabled.value ? 'success' : 'info') : 'warning',
   })
-}
-
-function formatPolicySeconds(value: number): string {
-  if (value >= 3600) {
-    const hours = Math.floor(value / 3600)
-    const minutes = Math.round((value % 3600) / 60)
-    return minutes ? `${hours} 小时 ${minutes} 分钟` : `${hours} 小时`
-  }
-  if (value >= 60) return `${Math.round(value / 60)} 分钟`
-  return `${value} 秒`
-}
-
-const settingsTimeoutLabel = computed(() =>
-  formatPolicySeconds(settingsForm.default_max_runtime_seconds),
-)
-
-async function openSettings() {
-  settingsOpen.value = true
-  settingsLoading.value = true
-  try {
-    const data = await api.getRuntimeSettings()
-    runtimeSettings.value = data
-    settingsForm.default_max_runtime_seconds = data.default_max_runtime_seconds
-    settingsForm.heartbeat_timeout_seconds = data.heartbeat_timeout_seconds
-    settingsForm.default_max_retries = data.default_max_retries
-    settingsForm.default_cpu_cores = data.default_cpu_cores
-    settingsForm.user_cpu_quota = data.user_cpu_quota
-  } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '读取运行设置失败')
-  } finally {
-    settingsLoading.value = false
-  }
-}
-
-async function saveSettings() {
-  settingsSaving.value = true
-  try {
-    const data = await api.updateRuntimeSettings({ ...settingsForm })
-    runtimeSettings.value = data
-    settingsOpen.value = false
-    ElMessage.success('运行设置已保存，新任务将使用新的默认值')
-    window.dispatchEvent(new CustomEvent('litetrain:settings-updated'))
-    await refreshStatus()
-  } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '保存运行设置失败')
-  } finally {
-    settingsSaving.value = false
-  }
 }
 
 function navigate(name: string) {
@@ -246,6 +201,7 @@ onBeforeUnmount(() => {
         <nav class="nav-list">
           <button
             v-for="item in group.items"
+            v-show="!item.permission || auth.hasPermission(item.permission)"
             :key="item.name"
             type="button"
             class="nav-item"
@@ -267,6 +223,24 @@ onBeforeUnmount(() => {
               {{ overview.tasks.running }}
             </span>
             <span v-else class="nav-chevron">↗</span>
+          </button>
+        </nav>
+      </div>
+
+      <div v-if="isAdmin" class="nav-block">
+        <p class="nav-label">管理</p>
+        <nav class="nav-list">
+          <button
+            type="button"
+            class="nav-item"
+            :class="{ active: isActive('admin') }"
+            :title="sidebarCollapsed ? '后台管理' : undefined"
+            aria-label="后台管理"
+            @click="navigate('admin')"
+          >
+            <span class="nav-icon"><el-icon><UserFilled /></el-icon></span>
+            <span class="nav-copy"><strong>后台管理</strong></span>
+            <span class="nav-chevron">↗</span>
           </button>
         </nav>
       </div>
@@ -313,14 +287,7 @@ onBeforeUnmount(() => {
           提交训练
         </button>
       </div>
-
-      <div class="sidebar-bottom">
-        <button class="sidebar-doc sidebar-settings" type="button" title="运行设置" @click="openSettings">
-          <el-icon><Setting /></el-icon>
-          <span>运行设置</span>
-          <span class="sidebar-doc-arrow">›</span>
-        </button>
-      </div>    </aside>
+    </aside>
 
     <div v-if="mobileNavOpen" class="nav-backdrop" @click="mobileNavOpen = false"></div>
 
@@ -375,7 +342,13 @@ onBeforeUnmount(() => {
             </button>
           </el-tooltip>
 
-          <span class="avatar" title="demo owner">LT</span>
+          <span class="topbar-user">{{ userName }}</span>
+          <el-tooltip content="退出登录" placement="bottom">
+            <button class="icon-button" type="button" aria-label="退出登录" @click="logout">
+              <el-icon><SwitchButton /></el-icon>
+            </button>
+          </el-tooltip>
+          <span class="avatar" :title="userName">{{ userInitial }}</span>
         </div>
       </header>
 
@@ -393,117 +366,6 @@ onBeforeUnmount(() => {
       </footer>
     </div>
 
-    <el-dialog
-      v-model="settingsOpen"
-      title="运行设置"
-      width="620px"
-      align-center
-      class="settings-dialog"
-      :close-on-click-modal="false"
-    >
-      <div v-loading="settingsLoading" class="settings-body">
-        <p class="settings-intro">
-          调整平台默认策略。超时与心跳阈值立即影响调度器；默认任务参数在下一次打开提交页时生效。
-        </p>
-
-        <div class="settings-list">
-          <div class="settings-row">
-            <div class="settings-copy">
-              <strong>默认任务超时</strong>
-              <span>新任务未显式指定时使用；当前为 {{ settingsTimeoutLabel }}</span>
-            </div>
-            <div class="settings-control">
-              <el-input-number
-                v-model="settingsForm.default_max_runtime_seconds"
-                :min="runtimeSettings?.limits.default_max_runtime_seconds?.[0] ?? 10"
-                :max="runtimeSettings?.limits.default_max_runtime_seconds?.[1] ?? 86400"
-                :step="60"
-                controls-position="right"
-              />
-              <span>秒</span>
-            </div>
-          </div>
-
-          <div class="settings-row">
-            <div class="settings-copy">
-              <strong>僵死判定阈值</strong>
-              <span>超过该时间没有收到 worker 心跳，任务会被终止并回收资源</span>
-            </div>
-            <div class="settings-control">
-              <el-input-number
-                v-model="settingsForm.heartbeat_timeout_seconds"
-                :min="runtimeSettings?.limits.heartbeat_timeout_seconds?.[0] ?? 5"
-                :max="runtimeSettings?.limits.heartbeat_timeout_seconds?.[1] ?? 600"
-                :step="5"
-                controls-position="right"
-              />
-              <span>秒</span>
-            </div>
-          </div>
-
-          <div class="settings-row">
-            <div class="settings-copy">
-              <strong>默认失败重试</strong>
-              <span>仅对进程失败生效，超时、取消和心跳超时不重试</span>
-            </div>
-            <div class="settings-control">
-              <el-input-number
-                v-model="settingsForm.default_max_retries"
-                :min="0"
-                :max="5"
-                :step="1"
-                controls-position="right"
-              />
-              <span>次</span>
-            </div>
-          </div>
-
-          <div class="settings-row">
-            <div class="settings-copy">
-              <strong>默认 CPU 核数</strong>
-              <span>新任务表单的默认资源占用</span>
-            </div>
-            <div class="settings-control">
-              <el-input-number
-                v-model="settingsForm.default_cpu_cores"
-                :min="1"
-                :max="runtimeSettings?.limits.default_cpu_cores?.[1] ?? runtimeSettings?.total_cpus ?? 8"
-                :step="1"
-                controls-position="right"
-              />
-              <span>核</span>
-            </div>
-          </div>
-
-          <div class="settings-row">
-            <div class="settings-copy">
-              <strong>单用户 CPU 配额</strong>
-              <span>同时限制节点容量和当前用户已占用的 CPU</span>
-            </div>
-            <div class="settings-control">
-              <el-input-number
-                v-model="settingsForm.user_cpu_quota"
-                :min="1"
-                :max="runtimeSettings?.total_cpus ?? 8"
-                :step="1"
-                controls-position="right"
-              />
-              <span>核</span>
-            </div>
-          </div>
-        </div>
-
-        <p class="settings-note">
-          当前单任务超时上限：{{ formatPolicySeconds(runtimeSettings?.max_runtime_seconds_limit ?? 86400) }}。
-          修改配额不能低于当前已分配的 CPU。
-        </p>
-      </div>
-
-      <template #footer>
-        <el-button @click="settingsOpen = false">取消</el-button>
-        <el-button type="primary" :loading="settingsSaving" @click="saveSettings">保存设置</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -2903,111 +2765,19 @@ html.dark .brand-mark i:nth-child(4) {
   }
 }
 
-.sidebar-settings {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  font-family: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.sidebar-settings:hover {
-  background: var(--panel-soft);
-  color: var(--text);
-}
-
-.settings-body {
-  min-height: 180px;
-}
-
-.settings-intro {
-  margin: 0 0 16px;
-  color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.settings-list {
+.topbar-user {
+  max-width: 110px;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel-soft);
-}
-
-.settings-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 13px 14px;
-}
-
-.settings-row + .settings-row {
-  border-top: 1px solid var(--border);
-}
-
-.settings-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.settings-copy strong {
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.settings-copy span {
   color: var(--text-muted);
   font-size: 12px;
-  line-height: 1.6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.settings-control {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex: none;
-}
-
-.settings-control :deep(.el-input-number) {
-  width: 142px;
-}
-
-.settings-control > span {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.settings-note {
-  margin: 14px 2px 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.7;
-}
-
-.settings-dialog :deep(.el-dialog__body) {
-  padding-top: 10px;
-}
-
-@media (max-width: 560px) {
-  .settings-row {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 9px;
-  }
-
-  .settings-control {
-    width: 100%;
-  }
-
-  .settings-control :deep(.el-input-number) {
-    flex: 1;
-    width: auto;
+@media (max-width: 760px) {
+  .topbar-user {
+    display: none;
   }
 }
+
 </style>

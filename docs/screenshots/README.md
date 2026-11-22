@@ -14,6 +14,8 @@ measure 4.5:1–19.0:1.
 | File | Page / state |
 | --- | --- |
 | `overview.png` | Light multi-node overview: CPU cards, topology, node resource table and recent tasks |
+| `login.png` | Platform sign-in page |
+| `admin.png` | Admin account management and role controls |
 | `tasks.png` | Task list with running task, status filters, pagination and row selection |
 | `submit.png` | YOLO CPU task form, quality gate, compute threads/cache and live preview |
 | `detail.png` | Succeeded task with logs, metrics, run manifest and checkpoint |

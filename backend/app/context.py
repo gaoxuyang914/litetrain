@@ -9,6 +9,7 @@ from datetime import datetime
 from app.config import Settings
 from app.database import Database, utcnow
 from app.services.artifacts import ArtifactService
+from app.services.auth import AuthService
 from app.services.benchmark import BenchmarkService
 from app.services.datasets import DatasetService
 from app.services.event_bus import EventBroker
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 class AppContext:
     settings: Settings
     db: Database
+    auth: AuthService
     broker: EventBroker
     log_store: LogStore
     resources: ResourceService
@@ -53,6 +55,7 @@ class AppContext:
     def build(cls, settings: Settings) -> AppContext:
         settings.ensure_directories()
         db = Database(settings.database_url)
+        auth = AuthService(settings, db)
         log_store = LogStore(settings.logs_dir)
         broker = EventBroker(
             settings.redis_url,
@@ -79,6 +82,7 @@ class AppContext:
         return cls(
             settings=settings,
             db=db,
+            auth=auth,
             broker=broker,
             log_store=log_store,
             resources=resources,
@@ -98,6 +102,7 @@ class AppContext:
 
     def initialize(self) -> None:
         self.db.init()
+        self.auth.ensure_bootstrap_admin()
         self.runtime_settings.load()
         self.broker.connect()
         self.execution.connect()

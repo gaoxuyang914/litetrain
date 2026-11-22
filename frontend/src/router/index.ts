@@ -1,17 +1,22 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+import { useAuth } from '@/composables/useAuth'
+
 const router = createRouter({
   history: createWebHistory(),
   scrollBehavior: () => ({ top: 0 }),
   routes: [
     {
+      path: '/login',
+      name: 'login',
+      component: () => import('@/views/LoginView.vue'),
+      meta: { title: '登录', public: true },
+    },
+    {
       path: '/',
       component: () => import('@/layout/AppLayout.vue'),
       children: [
-        {
-          path: '',
-          redirect: '/overview',
-        },
+        { path: '', redirect: '/overview' },
         {
           path: 'overview',
           name: 'overview',
@@ -28,7 +33,7 @@ const router = createRouter({
           path: 'tasks/new',
           name: 'task-submit',
           component: () => import('@/views/TaskSubmitView.vue'),
-          meta: { title: '提交训练任务', eyebrow: '提交' },
+          meta: { title: '提交训练任务', eyebrow: '提交', permission: 'platform.submit' },
         },
         {
           path: 'tasks/:id',
@@ -48,13 +53,39 @@ const router = createRouter({
           component: () => import('@/views/AssetsView.vue'),
           meta: { title: '数据与产物', eyebrow: '资产' },
         },
+        {
+          path: 'admin',
+          name: 'admin',
+          component: () => import('@/views/AdminView.vue'),
+          meta: { title: '后台管理', eyebrow: '管理', requiresAdmin: true },
+        },
       ],
     },
-    {
-      path: '/:pathMatch(.*)*',
-      redirect: '/overview',
-    },
+    { path: '/:pathMatch(.*)*', redirect: '/overview' },
   ],
+})
+
+router.beforeEach(async (to) => {
+  const auth = useAuth()
+  if (to.meta.public) {
+    return auth.isAuthenticated.value ? { name: 'overview' } : true
+  }
+  if (!auth.isAuthenticated.value) {
+    return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  if (!auth.user.value) {
+    await auth.ensureUser()
+  }
+  if (!auth.user.value) {
+    return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  if (to.meta.requiresAdmin && !auth.hasPermission('admin.console')) {
+    return { name: 'overview' }
+  }
+  if (typeof to.meta.permission === 'string' && !auth.hasPermission(to.meta.permission)) {
+    return { name: 'overview' }
+  }
+  return true
 })
 
 router.afterEach((to) => {

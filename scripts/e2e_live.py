@@ -8,12 +8,28 @@ runtime watchdog behaviour.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 
 import requests
 
 BASE = "http://127.0.0.1:8000/api/v1"
+SESSION = requests.Session()
+
+
+def login():
+    response = SESSION.post(
+        f"{BASE}/auth/login",
+        json={
+            "username": os.environ.get("LITETRAIN_ADMIN_USERNAME", "admin"),
+            "password": os.environ.get("LITETRAIN_ADMIN_PASSWORD", "admin123"),
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+    SESSION.headers["Authorization"] = f"Bearer {response.json()['token']}"
+    print("logged in as", response.json()["user"]["username"])
 
 
 def submit(name: str, *, cpu: int, epochs: int = 1, imgsz: int = 96, priority: int = 50, timeout: int = 300):
@@ -30,7 +46,7 @@ def submit(name: str, *, cpu: int, epochs: int = 1, imgsz: int = 96, priority: i
         "max_runtime_seconds": timeout,
         "max_retries": 0,
     }
-    response = requests.post(f"{BASE}/tasks", json=payload, timeout=10)
+    response = SESSION.post(f"{BASE}/tasks", json=payload, timeout=10)
     response.raise_for_status()
     task = response.json()
     print(f"submitted {task['id']} name={name!r} cpu={cpu} priority={priority} status={task['status']}")
@@ -38,7 +54,7 @@ def submit(name: str, *, cpu: int, epochs: int = 1, imgsz: int = 96, priority: i
 
 
 def get(task_id: str):
-    response = requests.get(f"{BASE}/tasks/{task_id}", timeout=10)
+    response = SESSION.get(f"{BASE}/tasks/{task_id}", timeout=10)
     response.raise_for_status()
     return response.json()
 
@@ -61,14 +77,14 @@ def wait_for(task_id: str, statuses: set[str], timeout: float = 60):
 
 
 def overview():
-    response = requests.get(f"{BASE}/cluster/overview", timeout=10)
+    response = SESSION.get(f"{BASE}/cluster/overview", timeout=10)
     response.raise_for_status()
     return response.json()
 
 
 def read_sse(task_id: str, max_events: int = 3) -> None:
     print("SSE probe:")
-    with requests.get(
+    with SESSION.get(
         f"{BASE}/tasks/{task_id}/logs/stream?offset=0",
         stream=True,
         timeout=(5, 8),
@@ -96,9 +112,10 @@ def read_sse(task_id: str, max_events: int = 3) -> None:
 
 
 def main() -> int:
-    health = requests.get("http://127.0.0.1:8000/healthz", timeout=5)
+    health = SESSION.get("http://127.0.0.1:8000/healthz", timeout=5)
     health.raise_for_status()
     print("health", health.json())
+    login()
 
     holder = submit("Queue holder - 6 cores", cpu=6, epochs=6, imgsz=160, priority=10, timeout=600)
     wait_for(holder["id"], {"running"}, timeout=40)
@@ -123,7 +140,7 @@ def main() -> int:
     read_sse(holder["id"], max_events=3)
 
     print("cancelling holder to free 6 CPUs...")
-    response = requests.post(f"{BASE}/tasks/{holder['id']}/cancel", timeout=20)
+    response = SESSION.post(f"{BASE}/tasks/{holder['id']}/cancel", timeout=20)
     response.raise_for_status()
     assert response.json()["task"]["status"] == "cancelled"
     wait_for(pending["id"], {"running"}, timeout=45)
@@ -161,7 +178,7 @@ def main() -> int:
     wait_for(pending["id"], {"succeeded", "failed"}, timeout=90)
     final_runner = get(pending["id"])
     print("runner final:", {"status": final_runner["status"], "runtime": final_runner["runtime_seconds"]})
-    metrics = requests.get(f"{BASE}/tasks/{pending['id']}/metrics", timeout=10).json()
+    metrics = SESSION.get(f"{BASE}/tasks/{pending['id']}/metrics", timeout=10).json()
     print("metric series:", [s["name"] for s in metrics["series"]])
     print("E2E OK")
     return 0
