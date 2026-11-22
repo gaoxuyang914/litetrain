@@ -526,33 +526,25 @@ onBeforeUnmount(() => {
           <div class="pipeline-head-actions">
             <el-button
               v-if="isTerminal(pipeline.status)"
-              size="small"
-              text
-              type="primary"
-              :loading="rerunningId === pipeline.id"
               :icon="RefreshRight"
+              :loading="rerunningId === pipeline.id"
               @click="rerunPipeline(pipeline)"
             >
               重跑
             </el-button>
             <el-button
               v-if="canResumePipeline(pipeline)"
-              size="small"
-              text
-              type="primary"
-              :loading="resumingId === pipeline.id"
               :icon="Refresh"
+              :loading="resumingId === pipeline.id"
               @click="resumePipeline(pipeline)"
             >
-              继续流水线
+              继续
             </el-button>
             <el-button
-              v-if="!isTerminal(pipeline.status)"
-              size="small"
-              text
-              type="danger"
-              :loading="cancellingId === pipeline.id"
               :icon="CircleClose"
+              :loading="cancellingId === pipeline.id"
+              :disabled="isTerminal(pipeline.status)"
+              :title="isTerminal(pipeline.status) ? '已结束的流水线不能取消' : '取消流水线'"
               @click="cancelPipeline(pipeline)"
             >
               取消
@@ -1150,8 +1142,12 @@ onBeforeUnmount(() => {
 .pipeline-head-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 7px;
   flex: none;
+}
+
+.pipeline-head-actions .el-button + .el-button {
+  margin-left: 0;
 }
 
 .row-action {
