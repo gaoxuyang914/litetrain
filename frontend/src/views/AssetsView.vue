@@ -485,9 +485,6 @@ onBeforeUnmount(() => {
       <div class="page-heading">
         <span class="eyebrow">资产与自动化</span>
         <h1 class="page-title">数据与产物</h1>
-        <p class="page-subtitle">
-          管理可复用数据集版本、下载 YOLO 训练权重与结果，并通过签名 Webhook 把任务和流水线状态推送到外部系统。
-        </p>
       </div>
       <div class="page-actions">
         <el-button :icon="Refresh" :loading="refreshing" circle title="刷新" @click="load(true)" />
