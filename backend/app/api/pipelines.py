@@ -31,9 +31,11 @@ def create_pipeline(payload: PipelineCreate, ctx: AppContext = Depends(get_ctx))
 def list_pipelines(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=50),
+    status: str | None = Query(default=None),
+    query: str | None = Query(default=None, max_length=120),
     ctx: AppContext = Depends(get_ctx),
 ) -> PipelineListResponse:
-    return ctx.pipelines.list(page=page, page_size=page_size)
+    return ctx.pipelines.list(page=page, page_size=page_size, status=status, query=query)
 
 
 @router.get("/{pipeline_id}", response_model=PipelineOut, summary="Pipeline detail with stages")

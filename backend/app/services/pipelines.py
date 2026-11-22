@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.config import Settings
 from app.database import Database, utcnow
@@ -791,15 +791,39 @@ class PipelineService:
                 raise PipelineNotFound(pipeline_id)
             return self._to_schema(session, pipeline, include_artifacts=True)
 
-    def list(self, page: int = 1, page_size: int = 10) -> PipelineListResponse:
+    def list(
+        self,
+        page: int = 1,
+        page_size: int = 10,
+        *,
+        status: str | None = None,
+        query: str | None = None,
+    ) -> PipelineListResponse:
         page = max(1, page)
         page_size = max(1, min(50, page_size))
+        conditions = []
+        if status and status != "all":
+            conditions.append(Pipeline.status == status)
+        needle = (query or "").strip()
+        if needle:
+            pattern = f"%{needle}%"
+            conditions.append(
+                or_(
+                    Pipeline.id.ilike(pattern),
+                    Pipeline.name.ilike(pattern),
+                    Pipeline.config_json.ilike(pattern),
+                )
+            )
         with self.db.session() as session:
-            from sqlalchemy import func
-
-            total = int(session.scalar(select(func.count(Pipeline.id))) or 0)
+            total = int(
+                session.scalar(
+                    select(func.count(Pipeline.id)).where(*conditions)
+                )
+                or 0
+            )
             rows = session.scalars(
                 select(Pipeline)
+                .where(*conditions)
                 .order_by(Pipeline.submitted_at.desc())
                 .offset((page - 1) * page_size)
                 .limit(page_size)

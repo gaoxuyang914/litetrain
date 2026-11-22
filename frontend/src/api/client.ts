@@ -278,9 +278,13 @@ export const api = {
     return data
   },
 
-  async listPipelines(page = 1, pageSize = 10): Promise<PipelineListResponse> {
+  async listPipelines(
+    page = 1,
+    pageSize = 10,
+    filters: { status?: string; query?: string } = {},
+  ): Promise<PipelineListResponse> {
     const { data } = await http.get<PipelineListResponse>('/pipelines', {
-      params: { page, page_size: pageSize },
+      params: { page, page_size: pageSize, status: filters.status, query: filters.query },
     })
     return data
   },

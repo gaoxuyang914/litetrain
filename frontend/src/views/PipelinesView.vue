@@ -6,6 +6,7 @@ import {
   Download,
   Plus,
   Refresh,
+  Search,
   Share,
   Timer,
 } from '@element-plus/icons-vue'
@@ -28,6 +29,9 @@ const pipelines = ref<Pipeline[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
+const pipelineFilter = ref<'all' | 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'>('all')
+const searchInput = ref('')
+const appliedSearch = ref('')
 const loading = ref(true)
 const refreshing = ref(false)
 const error = ref<string | null>(null)
@@ -121,6 +125,39 @@ const stageDefinitions = [
   { key: 'evaluate', label: '评估', hint: '阈值、类别 AP、延迟', index: '03' },
 ]
 
+const pipelineFilters = [
+  { value: 'all', label: '全部' },
+  { value: 'running', label: '运行中' },
+  { value: 'succeeded', label: '成功' },
+  { value: 'failed', label: '失败' },
+  { value: 'cancelled', label: '已取消' },
+  { value: 'pending', label: '排队中' },
+] as const
+
+const hasFilters = computed(
+  () => pipelineFilter.value !== 'all' || appliedSearch.value.length > 0,
+)
+
+function selectPipelineFilter(value: typeof pipelineFilter.value) {
+  pipelineFilter.value = value
+  page.value = 1
+  load(true)
+}
+
+function applyPipelineSearch() {
+  appliedSearch.value = searchInput.value.trim()
+  page.value = 1
+  load(true)
+}
+
+function clearPipelineFilters() {
+  pipelineFilter.value = 'all'
+  searchInput.value = ''
+  appliedSearch.value = ''
+  page.value = 1
+  load(true)
+}
+
 const stageMeta: Record<string, { label: string; tone: string }> = {
   waiting: { label: '等待前序', tone: 'waiting' },
   pending: { label: '排队中', tone: 'pending' },
@@ -164,7 +201,10 @@ async function load(silent = false) {
   if (!silent) loading.value = true
   refreshing.value = true
   try {
-    const data = await api.listPipelines(page.value, pageSize.value)
+    const data = await api.listPipelines(page.value, pageSize.value, {
+      status: pipelineFilter.value === 'all' ? undefined : pipelineFilter.value,
+      query: appliedSearch.value || undefined,
+    })
     pipelines.value = data.items
     total.value = data.total
     error.value = null
@@ -369,28 +409,32 @@ onBeforeUnmount(() => {
 
     <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
 
-    <section class="panel pipeline-guide">
-      <div class="guide-head">
-        <div>
-          <span class="soft-label">流水线结构</span>
-          <h2>一个流水线，三个可审计阶段</h2>
-        </div>
-        <span class="tag-soft accent"><span class="dot"></span>串行执行 · 可恢复</span>
+    <section class="panel pipeline-toolbar">
+      <div class="pipeline-filter-chips">
+        <button
+          v-for="filter in pipelineFilters"
+          :key="filter.value"
+          type="button"
+          class="pipeline-filter"
+          :class="{ active: pipelineFilter === filter.value }"
+          @click="selectPipelineFilter(filter.value)"
+        >
+          {{ filter.label }}
+        </button>
       </div>
-      <div class="guide-stages">
-        <div v-for="(stage, index) in stageDefinitions" :key="stage.key" class="guide-stage">
-          <span class="guide-index mono">{{ stage.index }}</span>
-          <div>
-            <strong>{{ stage.label }}</strong>
-            <span>{{ stage.hint }}</span>
-          </div>
-          <span v-if="index < stageDefinitions.length - 1" class="guide-arrow">→</span>
-        </div>
-        <div class="guide-artifacts">
-          <span class="soft-label">阶段产物</span>
-          <strong>dataset.yaml + best.pt</strong>
-          <span>自动登记到数据与产物页</span>
-        </div>
+      <div class="pipeline-search-wrap">
+        <el-input
+          v-model="searchInput"
+          class="pipeline-search"
+          clearable
+          :prefix-icon="Search"
+          placeholder="搜索名称 / ID / 数据集 / 模型"
+          @keyup.enter="applyPipelineSearch"
+          @clear="applyPipelineSearch"
+        />
+        <el-button :icon="Search" @click="applyPipelineSearch">搜索</el-button>
+        <span class="pipeline-result-count mono">{{ total }} 条</span>
+        <el-button v-if="hasFilters" text @click="clearPipelineFilters">清除</el-button>
       </div>
     </section>
 
@@ -401,9 +445,13 @@ onBeforeUnmount(() => {
     <div v-else-if="pipelines.length === 0" class="panel empty-pipeline">
       <div class="empty-state">
         <span class="empty-icon"><el-icon><Share /></el-icon></span>
-        <strong>还没有流水线</strong>
-        <span>用一个串行流水线验证预处理、训练和评估的自动衔接，以及阶段产物的下载。</span>
-        <el-button type="primary" plain size="small" @click="openCreate">创建第一条流水线</el-button>
+        <strong>{{ hasFilters ? '没有匹配的流水线' : '还没有流水线' }}</strong>
+        <span v-if="hasFilters">换个状态或关键词试试，也可以清除筛选。</span>
+        <span v-else>用一个串行流水线验证预处理、训练和评估的自动衔接，以及阶段产物的下载。</span>
+        <el-button v-if="hasFilters" type="primary" plain size="small" @click="clearPipelineFilters">
+          清除筛选
+        </el-button>
+        <el-button v-else type="primary" plain size="small" @click="openCreate">创建第一条流水线</el-button>
       </div>
     </div>
 
@@ -781,6 +829,77 @@ onBeforeUnmount(() => {
 .refresh-dot.live {
   background: var(--accent);
   animation: soft-pulse 2s ease-out infinite;
+}
+
+.pipeline-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 11px 14px;
+}
+
+.pipeline-filter-chips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.pipeline-filter {
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.pipeline-filter:hover {
+  background: var(--panel-soft);
+  color: var(--text-secondary);
+}
+
+.pipeline-filter.active {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.pipeline-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.pipeline-search {
+  width: 300px;
+}
+
+.pipeline-result-count {
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .pipeline-toolbar {
+    align-items: stretch;
+  }
+
+  .pipeline-search-wrap {
+    width: 100%;
+  }
+
+  .pipeline-search {
+    flex: 1;
+    width: auto;
+    min-width: 170px;
+  }
 }
 
 .pipeline-guide {

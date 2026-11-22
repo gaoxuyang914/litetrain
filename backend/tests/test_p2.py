@@ -593,6 +593,34 @@ def test_resume_pipeline_reconciles_completed_stage(client, ctx):
     assert current["stages"][2]["task"] is not None
 
 
+def test_pipeline_list_filters(client):
+    for name in ("filter alpha", "filter beta"):
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "name": name,
+                "source_dataset": "coco128.yaml",
+                "model": "yolov8n.pt",
+                "epochs": 1,
+                "imgsz": 64,
+                "batch_size": 1,
+                "cpu_cores": 2,
+                "max_runtime_seconds": 60,
+                "max_retries": 0,
+            },
+        )
+        assert response.status_code == 201, response.text
+    by_name = client.get("/api/v1/pipelines", params={"query": "filter alpha"}).json()
+    assert by_name["total"] == 1
+    assert by_name["items"][0]["name"] == "filter alpha"
+
+    by_dataset = client.get("/api/v1/pipelines", params={"query": "coco128"}).json()
+    assert by_dataset["total"] == 2
+
+    by_status = client.get("/api/v1/pipelines", params={"status": "running"}).json()
+    assert by_status["total"] == 0
+
+
 def test_pipeline_failure_stops_later_stages(client, ctx):
     created = client.post(
         "/api/v1/pipelines",
