@@ -13,7 +13,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { api } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge.vue'
-import type { Artifact, Pipeline, PipelineCreatePayload } from '@/types/p2'
+import type { Artifact, Pipeline, PipelineCreatePayload, PipelineStage } from '@/types/p2'
 import type { TaskOptions } from '@/types/task'
 import {
   formatDate,
@@ -52,14 +52,21 @@ const form = reactive<PipelineCreatePayload>({
   max_runtime_seconds: 600,
   max_retries: 0,
   max_images: 24,
+  val_ratio: 0.2,
+  seed: 42,
+  dedupe: true,
+  eval_split: 'val',
+  eval_conf: 0.001,
+  eval_iou: 0.6,
+  eval_max_det: 300,
   notes: '',
 })
 
 const hasActive = computed(() => pipelines.value.some((item) => !isTerminal(item.status)))
 const stageDefinitions = [
-  { key: 'preprocess', label: '预处理', hint: '校验数据集，打包子集', index: '01' },
+  { key: 'preprocess', label: '预处理', hint: '去重、校验、分层切分', index: '01' },
   { key: 'train', label: '训练', hint: 'YOLOv8n，CPU', index: '02' },
-  { key: 'evaluate', label: '评估', hint: 'best.pt，验证集', index: '03' },
+  { key: 'evaluate', label: '评估', hint: '阈值、类别 AP、延迟', index: '03' },
 ]
 
 const stageMeta: Record<string, { label: string; tone: string }> = {
@@ -196,7 +203,41 @@ function stageHint(pipeline: Pipeline, key: string) {
 
 function pipelineConfigSummary(pipeline: Pipeline) {
   const cfg = pipeline.config
-  return `${cfg.epochs} 轮，${cfg.imgsz} px，${cfg.cpu_cores} 核，${cfg.max_images} 张图`
+  return `${cfg.epochs} 轮，${cfg.imgsz} px，${cfg.cpu_cores} 核，验证 ${Math.round((cfg.val_ratio ?? 0.2) * 100)}%`
+}
+
+const stageLabels: Record<string, string> = {
+  preprocess: '预处理',
+  train: '训练',
+  evaluate: '评估',
+}
+
+function stageLabel(key: string): string {
+  return stageLabels[key] ?? key
+}
+
+function metricPercent(value: number | undefined | null): string {
+  if (value == null || !Number.isFinite(value)) return '—'
+  return `${(value * 100).toFixed(1)}%`
+}
+
+function metricFixed(value: number | undefined | null, digits = 2): string {
+  if (value == null || !Number.isFinite(value)) return '—'
+  return value.toFixed(digits)
+}
+
+function preprocessCount(stage: PipelineStage, key: string): number {
+  const counts = stage.details?.counts ?? {}
+  return Number(counts[key] ?? 0)
+}
+
+function evaluationOverall(stage: PipelineStage, key: string): number | null {
+  const value = stage.details?.overall?.[key] ?? stage.metrics?.[`eval/${key}`]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function stageClassRows(stage: PipelineStage): Array<Record<string, any>> {
+  return Array.isArray(stage.details?.per_class) ? stage.details.per_class : []
 }
 
 onMounted(async () => {
@@ -407,8 +448,67 @@ onBeforeUnmount(() => {
           <el-form-item label="批大小">
             <el-input-number v-model="form.batch_size" :min="1" :max="32" controls-position="right" class="full" />
           </el-form-item>
-          <el-form-item label="预处理图片数上限">
-            <el-input-number v-model="form.max_images" :min="1" :max="128" controls-position="right" class="full" />
+          <div class="form-section span-2">
+            <strong>预处理策略</strong>
+            <span>先做图片去重和标签校验，再按固定种子切分训练/验证集，避免原始 split 泄漏。</span>
+          </div>
+          <el-form-item label="保留图片数上限">
+            <el-input-number v-model="form.max_images" :min="2" :max="128" controls-position="right" class="full" />
+          </el-form-item>
+          <el-form-item label="验证集比例">
+            <el-input-number
+              v-model="form.val_ratio"
+              :min="0.05"
+              :max="0.5"
+              :step="0.05"
+              :precision="2"
+              controls-position="right"
+              class="full"
+            />
+          </el-form-item>
+          <el-form-item label="切分随机种子">
+            <el-input-number v-model="form.seed" :min="0" :max="2147483647" controls-position="right" class="full" />
+          </el-form-item>
+          <el-form-item label="去重与标签校验">
+            <div class="switch-field">
+              <el-switch v-model="form.dedupe" />
+              <span>{{ form.dedupe ? '开启：去除重复图片，丢弃缺失/非法标签' : '关闭：保留重复图片' }}</span>
+            </div>
+          </el-form-item>
+          <div class="form-section span-2">
+            <strong>评估策略</strong>
+            <span>在训练后生成整体指标、类别 AP、阈值配置和 CPU 推理延迟，并写入评估报告。</span>
+          </div>
+          <el-form-item label="评估数据 split">
+            <el-select v-model="form.eval_split" class="full">
+              <el-option label="验证集 val" value="val" />
+              <el-option label="训练集 train" value="train" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="置信度阈值">
+            <el-input-number
+              v-model="form.eval_conf"
+              :min="0.001"
+              :max="0.5"
+              :step="0.01"
+              :precision="3"
+              controls-position="right"
+              class="full"
+            />
+          </el-form-item>
+          <el-form-item label="IoU 阈值">
+            <el-input-number
+              v-model="form.eval_iou"
+              :min="0.1"
+              :max="0.95"
+              :step="0.05"
+              :precision="2"
+              controls-position="right"
+              class="full"
+            />
+          </el-form-item>
+          <el-form-item label="最大检测数">
+            <el-input-number v-model="form.eval_max_det" :min="10" :max="1000" :step="10" controls-position="right" class="full" />
           </el-form-item>
           <el-form-item label="每阶段 CPU">
             <el-input-number
@@ -454,12 +554,54 @@ onBeforeUnmount(() => {
           <div class="detail-stage-list">
             <div v-for="stage in detail.stages" :key="stage.id" class="detail-stage">
               <div class="detail-stage-heading">
-                <span class="soft-label">{{ stage.stage_key }}</span>
+                <span class="soft-label">{{ stageLabel(stage.stage_key) }}</span>
                 <span :class="['stage-pill', stageStatus(stage.status).tone]">
                   {{ stageStatus(stage.status).label }}
                 </span>
               </div>
               <p v-if="stage.message">{{ stage.message }}</p>
+              <div v-if="stage.stage_key === 'preprocess' && stage.details?.counts" class="stage-report">
+                <div class="stage-kpis">
+                  <span><strong>{{ preprocessCount(stage, 'kept_images') }}</strong><small>保留图片</small></span>
+                  <span><strong>{{ preprocessCount(stage, 'train_images') }}</strong><small>训练集</small></span>
+                  <span><strong>{{ preprocessCount(stage, 'val_images') }}</strong><small>验证集</small></span>
+                  <span><strong>{{ preprocessCount(stage, 'duplicate_images') }}</strong><small>去重</small></span>
+                  <span><strong>{{ preprocessCount(stage, 'invalid_labels') }}</strong><small>无效标签</small></span>
+                </div>
+                <p class="stage-report-note">
+                  seed {{ stage.details.policy?.seed ?? 42 }} · 去重
+                  {{ stage.details.policy?.dedupe === false ? '关闭' : '开启' }} ·
+                  验证比例 {{ metricPercent(stage.details.policy?.val_ratio) }}
+                </p>
+                <p v-for="warning in stage.details.warnings ?? []" :key="warning" class="stage-warning">{{ warning }}</p>
+              </div>
+              <div v-else-if="stage.stage_key === 'evaluate' && stage.details?.overall" class="stage-report">
+                <div class="stage-kpis stage-kpis-eval">
+                  <span><strong>{{ metricPercent(evaluationOverall(stage, 'map50')) }}</strong><small>mAP50</small></span>
+                  <span><strong>{{ metricPercent(evaluationOverall(stage, 'map50_95')) }}</strong><small>mAP50-95</small></span>
+                  <span><strong>{{ metricPercent(evaluationOverall(stage, 'precision')) }}</strong><small>精确率</small></span>
+                  <span><strong>{{ metricPercent(evaluationOverall(stage, 'recall')) }}</strong><small>召回率</small></span>
+                  <span><strong>{{ metricFixed(evaluationOverall(stage, 'latency_ms'), 1) }}</strong><small>ms / 图</small></span>
+                  <span><strong>{{ metricFixed(evaluationOverall(stage, 'fps'), 1) }}</strong><small>FPS</small></span>
+                </div>
+                <div v-if="stageClassRows(stage).length" class="class-report">
+                  <div class="class-report-head">
+                    <span>类别 AP50-95</span>
+                    <small>{{ stage.details.per_class.length }} 类</small>
+                  </div>
+                  <div v-for="row in stageClassRows(stage).slice(0, 8)" :key="row.class_id" class="class-row">
+                    <span>{{ row.class }}</span>
+                    <strong class="mono">{{ metricPercent(row.ap50_95) }}</strong>
+                  </div>
+                  <small v-if="stageClassRows(stage).length > 8" class="class-more">
+                    仅展示前 8 类，完整报告见 evaluation.json
+                  </small>
+                </div>
+                <p class="stage-report-note">
+                  split {{ stage.details.config?.split ?? 'val' }} · conf
+                  {{ stage.details.config?.conf ?? 0.001 }} · IoU {{ stage.details.config?.iou ?? 0.6 }}
+                </p>
+              </div>
               <div v-if="stage.task" class="detail-task">
                 <div>
                   <strong>{{ stage.task.name }}</strong>
@@ -920,6 +1062,37 @@ onBeforeUnmount(() => {
   grid-column: span 2;
 }
 
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 4px;
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--border);
+}
+
+.form-section strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.form-section span {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.switch-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .full {
   width: 100%;
 }
@@ -1018,6 +1191,107 @@ onBeforeUnmount(() => {
   color: var(--red);
   font-family: var(--mono);
   font-size: 8.5px;
+}
+
+.stage-report {
+  margin-top: 8px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.stage-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.stage-kpis-eval {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.stage-kpis span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  background: var(--panel-soft);
+}
+
+.stage-kpis strong {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.stage-kpis small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stage-report-note,
+.detail-stage .stage-report-note {
+  margin: 7px 0 0;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 8.5px;
+  line-height: 1.5;
+}
+
+.stage-warning,
+.detail-stage .stage-warning {
+  margin: 4px 0 0;
+  color: var(--amber);
+  font-family: inherit;
+  font-size: 8.5px;
+  line-height: 1.5;
+}
+
+.class-report {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border);
+}
+
+.class-report-head,
+.class-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.class-report-head {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 8.5px;
+}
+
+.class-row {
+  padding: 3px 0;
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.class-row strong {
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.class-more {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 8px;
 }
 
 .detail-task {
@@ -1400,6 +1674,20 @@ onBeforeUnmount(() => {
   background:
     radial-gradient(240px 120px at 100% 0%, var(--accent-soft), transparent 70%),
     var(--panel-soft);
+}
+
+.pipeline-dialog :deep(.el-dialog__body) {
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+}
+
+:global(.pipeline-dialog) {
+  margin-top: 8vh !important;
+}
+
+:global(.pipeline-dialog .el-dialog__body) {
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
 }
 
 .detail-summary h3 {

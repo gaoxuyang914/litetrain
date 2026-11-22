@@ -323,6 +323,17 @@ def test_pipeline_coordinator_serial_stages(client, ctx, payload):
         "path: .\ntrain: images/train\nval: images/train\nnames:\n  0: widget\n",
         encoding="utf-8",
     )
+    (output / "preprocess.json").write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "counts": {"kept_images": 1, "train_images": 1, "val_images": 0},
+                "policy": {"seed": 42, "dedupe": True, "val_ratio": 0.2},
+                "warnings": [],
+            }
+        ),
+        encoding="utf-8",
+    )
     with ctx.db.session() as session:
         task = session.get(Task, first_task_id)
         assert task is not None
@@ -334,6 +345,7 @@ def test_pipeline_coordinator_serial_stages(client, ctx, payload):
 
     current = client.get(f"/api/v1/pipelines/{pipeline_id}").json()
     assert current["stages"][0]["status"] == "succeeded"
+    assert current["stages"][0]["details"]["counts"]["kept_images"] == 1
     train_task_id = current["stages"][1]["task"]["id"]
     assert train_task_id
     assert current["stages"][2]["task"] is None
@@ -356,6 +368,20 @@ def test_pipeline_coordinator_serial_stages(client, ctx, payload):
     assert eval_task_id
     assert current["stages"][2]["status"] == "pending"
 
+    eval_run_dir = ctx.settings.runs_dir / eval_task_id
+    eval_run_dir.mkdir(parents=True, exist_ok=True)
+    (eval_run_dir / "evaluation.json").write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "overall": {"map50": 0.5, "map50_95": 0.3},
+                "per_class": [{"class_id": 0, "class": "widget", "ap50_95": 0.3}],
+                "config": {"split": "val"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
     with ctx.db.session() as session:
         task = session.get(Task, eval_task_id)
         assert task is not None
@@ -368,6 +394,7 @@ def test_pipeline_coordinator_serial_stages(client, ctx, payload):
     assert current["status"] == "succeeded"
     assert current["progress"] == 100.0 or current["progress"] > 99
     assert current["finished_at"] is not None
+    assert current["stages"][2]["details"]["overall"]["map50"] == 0.5
 
     import shutil
 

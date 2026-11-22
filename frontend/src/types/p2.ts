@@ -102,6 +102,8 @@ export interface PipelineStage {
   status: string
   message: string | null
   task: PipelineStageTask | null
+  metrics: Record<string, number>
+  details: Record<string, any>
   started_at: string | null
   finished_at: string | null
 }
@@ -119,6 +121,13 @@ export interface PipelineConfig {
   max_runtime_seconds: number
   max_retries: number
   max_images: number
+  val_ratio?: number
+  seed?: number
+  dedupe?: boolean
+  eval_split?: 'train' | 'val'
+  eval_conf?: number
+  eval_iou?: number
+  eval_max_det?: number
   notes?: string | null
 }
 
@@ -151,6 +160,13 @@ export interface PipelineCreatePayload {
   max_runtime_seconds: number
   max_retries: number
   max_images: number
+  val_ratio: number
+  seed: number
+  dedupe: boolean
+  eval_split: 'train' | 'val'
+  eval_conf: number
+  eval_iou: number
+  eval_max_det: number
   notes?: string | null
 }
 

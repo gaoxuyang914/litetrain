@@ -22,6 +22,7 @@ ARTIFACT_PATTERNS = (
     ("weights/*.pt", "model"),
     ("results.csv", "metrics"),
     ("args.yaml", "config"),
+    ("evaluation.json", "metrics"),
     ("weights/*.onnx", "model"),
 )
 

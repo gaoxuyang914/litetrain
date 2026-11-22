@@ -650,6 +650,13 @@ class PipelineCreate(BaseModel):
     max_runtime_seconds: int = Field(default=600, ge=10, le=604_800)
     max_retries: int = Field(default=0, ge=0, le=5)
     max_images: int = Field(default=24, ge=1, le=1024)
+    val_ratio: float = Field(default=0.2, ge=0.05, le=0.5)
+    seed: int = Field(default=42, ge=0, le=2_147_483_647)
+    dedupe: bool = True
+    eval_split: str = Field(default="val", pattern=r"^(train|val)$")
+    eval_conf: float = Field(default=0.001, ge=0.001, le=0.5)
+    eval_iou: float = Field(default=0.6, ge=0.1, le=0.95)
+    eval_max_det: int = Field(default=300, ge=10, le=1000)
     notes: str | None = Field(default=None, max_length=500)
 
     @field_validator("name")
@@ -683,6 +690,8 @@ class PipelineStageOut(BaseModel):
     status: str
     message: str | None = None
     task: PipelineStageTaskSummary | None = None
+    metrics: dict[str, float] = Field(default_factory=dict)
+    details: dict = Field(default_factory=dict)
     started_at: OptionalUtcDateTime = None
     finished_at: OptionalUtcDateTime = None
 

@@ -117,10 +117,14 @@ class PipelineService:
         if stage_key == "preprocess":
             source = self._display(resolve_dataset_path(self.settings, pipeline_cfg["source_dataset"]))
             output = self._display(self._dataset_output_dir(pipeline_id))
+            dedupe_flag = "--dedupe" if pipeline_cfg.get("dedupe", True) else "--no-dedupe"
             return (
                 f"python -m app.training.worker --kind preprocess --task-id {task_id} "
                 f"--source-data {source} --output-dir {output} "
-                f"--max-images {config.get('max_images', 24)} --cpu-cores {pipeline_cfg['cpu_cores']}"
+                f"--max-images {config.get('max_images', pipeline_cfg.get('max_images', 24))} "
+                f"--val-ratio {pipeline_cfg.get('val_ratio', 0.2)} "
+                f"--seed {pipeline_cfg.get('seed', 42)} {dedupe_flag} "
+                f"--cpu-cores {pipeline_cfg['cpu_cores']}"
             )
         if stage_key == "evaluate":
             weights = config.get("weights_path") or ""
@@ -128,7 +132,10 @@ class PipelineService:
             return (
                 f"python -m app.training.worker --kind evaluate --task-id {task_id} "
                 f"--weights {weights} --data {data} --imgsz {pipeline_cfg['imgsz']} "
-                f"--batch {pipeline_cfg['batch_size']} --cpu-cores {pipeline_cfg['cpu_cores']}"
+                f"--batch {pipeline_cfg['batch_size']} --split {pipeline_cfg.get('eval_split', 'val')} "
+                f"--conf {pipeline_cfg.get('eval_conf', 0.001)} --iou {pipeline_cfg.get('eval_iou', 0.6)} "
+                f"--max-det {pipeline_cfg.get('eval_max_det', 300)} --cpu-cores {pipeline_cfg['cpu_cores']} "
+                f"--project {self._display(self.settings.runs_dir)} --name {task_id}"
             )
         # train stage: keep the familiar YOLO CLI shape in the log preview
         data = self._dataset_relative_path(pipeline_id)
@@ -296,6 +303,13 @@ class PipelineService:
             "max_runtime_seconds": payload.max_runtime_seconds,
             "max_retries": payload.max_retries,
             "max_images": payload.max_images,
+            "val_ratio": payload.val_ratio,
+            "seed": payload.seed,
+            "dedupe": payload.dedupe,
+            "eval_split": payload.eval_split,
+            "eval_conf": payload.eval_conf,
+            "eval_iou": payload.eval_iou,
+            "eval_max_det": payload.eval_max_det,
             "notes": payload.notes,
         }
         now = utcnow()
@@ -318,13 +332,21 @@ class PipelineService:
                         "output_dir": str(self._dataset_output_dir(pipeline_id)),
                         "dataset_yaml": self._dataset_relative_path(pipeline_id),
                         "max_images": payload.max_images,
+                        "val_ratio": payload.val_ratio,
+                        "seed": payload.seed,
+                        "dedupe": payload.dedupe,
                     }
                     status = TaskStatus.PENDING.value
                 elif key == "train":
                     stage_config = {"dataset": self._dataset_relative_path(pipeline_id)}
                     status = "waiting"
                 else:
-                    stage_config = {}
+                    stage_config = {
+                        "eval_split": payload.eval_split,
+                        "eval_conf": payload.eval_conf,
+                        "eval_iou": payload.eval_iou,
+                        "eval_max_det": payload.eval_max_det,
+                    }
                     status = "waiting"
                 stage = PipelineStage(
                     id="ps" + uuid.uuid4().hex[:12],
@@ -488,7 +510,12 @@ class PipelineService:
                                     f"Training finished but best.pt was not found at {weights}",
                                 )
                                 break
+                            try:
+                                existing_cfg = json.loads(next_stage.config_json or "{}")
+                            except json.JSONDecodeError:
+                                existing_cfg = {}
                             stage_cfg = {
+                                **existing_cfg,
                                 "weights_task_id": weights_task.id,
                                 "weights_path": str(weights),
                             }
@@ -544,6 +571,8 @@ class PipelineService:
     # -------------------------------------------------------------------- reads
     def _stage_out(self, session, stage: PipelineStage) -> PipelineStageOut:
         task_summary = None
+        metrics: dict[str, float] = {}
+        details: dict = {}
         if stage.task_id:
             task = session.get(Task, stage.task_id)
             if task is not None:
@@ -556,6 +585,34 @@ class PipelineService:
                     failure_reason=task.failure_reason,
                     log_size_bytes=self.log_store.size(task.id),
                 )
+                result_path = Path(task.result_path)
+                if result_path.is_file():
+                    try:
+                        result = json.loads(result_path.read_text(encoding="utf-8"))
+                        metrics = {
+                            str(key): float(value)
+                            for key, value in (result.get("metrics") or {}).items()
+                            if isinstance(value, (int, float))
+                        }
+                    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                        metrics = {}
+                report_path: Path | None = None
+                if stage.stage_key == "preprocess":
+                    try:
+                        stage_config = json.loads(stage.config_json or "{}")
+                        if stage_config.get("output_dir"):
+                            report_path = Path(stage_config["output_dir"]) / "preprocess.json"
+                    except json.JSONDecodeError:
+                        report_path = None
+                elif stage.stage_key == "evaluate":
+                    report_path = result_path.parent / "evaluation.json"
+                if report_path is not None and report_path.is_file():
+                    try:
+                        report = json.loads(report_path.read_text(encoding="utf-8"))
+                        if isinstance(report, dict):
+                            details = report
+                    except (OSError, json.JSONDecodeError):
+                        details = {}
         return PipelineStageOut(
             id=stage.id,
             stage_key=stage.stage_key,
@@ -563,6 +620,8 @@ class PipelineService:
             status=stage.status,
             message=stage.message,
             task=task_summary,
+            metrics=metrics,
+            details=details,
             started_at=stage.started_at,
             finished_at=stage.finished_at,
         )

@@ -12,9 +12,11 @@ intentionally small and independent of the web process:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
+import random
 import shutil
 import sys
 import threading
@@ -233,6 +235,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--weights", default=None)
     parser.add_argument("--max-images", type=int, default=24)
+    parser.add_argument("--val-ratio", type=float, default=0.2)
+    parser.add_argument("--dedupe", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--split", choices=("train", "val"), default="val")
+    parser.add_argument("--conf", type=float, default=0.001)
+    parser.add_argument("--iou", type=float, default=0.6)
+    parser.add_argument("--max-det", type=int, default=300)
     parser.add_argument("--pipeline-id", default=None)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--imgsz", type=int, default=160)
@@ -312,6 +320,35 @@ def _label_for_image(image: Path, root: Path) -> Path | None:
     return None
 
 
+def _label_class_ids(label: Path, class_count: int) -> list[int] | None:
+    """Return parsed class ids, or ``None`` for a malformed label file."""
+    try:
+        text = label.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    classes: list[int] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) != 5:
+            return None
+        try:
+            class_id = int(parts[0])
+            x, y, width, height = (float(item) for item in parts[1:])
+        except (TypeError, ValueError):
+            return None
+        if class_id < 0 or (class_count > 0 and class_id >= class_count):
+            return None
+        if not all(math.isfinite(value) for value in (x, y, width, height)):
+            return None
+        if not (0 <= x <= 1 and 0 <= y <= 1 and 0 < width <= 1 and 0 < height <= 1):
+            return None
+        classes.append(class_id)
+    return classes
+
+
 def run_preprocess(args: argparse.Namespace, state: ProgressState, client: ControlPlaneClient) -> dict[str, float]:
     import yaml
 
@@ -328,77 +365,163 @@ def run_preprocess(args: argparse.Namespace, state: ProgressState, client: Contr
         raise ValueError("source dataset YAML must be a mapping")
     root = _resolve_dataset_root(source_yaml, data)
     names = data.get("names") or []
+    class_count = len(names) if isinstance(names, (list, dict)) else 0
+    val_ratio = min(0.5, max(0.05, float(args.val_ratio)))
     output = Path(args.output_dir)
     if output.exists():
         shutil.rmtree(output)
     for split in ("train", "val"):
         (output / "images" / split).mkdir(parents=True, exist_ok=True)
         (output / "labels" / split).mkdir(parents=True, exist_ok=True)
-    state.update(5.0, "validating source dataset")
-    total_images = 0
-    total_labels = 0
-    split_counts: dict[str, int] = {}
+
+    state.update(5.0, "scanning source dataset")
+    samples: list[dict[str, Any]] = []
+    seen_hashes: dict[str, Path] = {}
+    source_counts: dict[str, int] = {}
+    dropped = {
+        "duplicate_images": 0,
+        "missing_labels": 0,
+        "invalid_labels": 0,
+        "unreadable_images": 0,
+    }
     for split in ("train", "val"):
         source_split = data.get(split)
         if split == "val":
             source_split = source_split or data.get("validation")
         images = _split_images(root, source_split)
-        if not images and split == "train":
-            raise ValueError(f"no images found for split 'train' under {root}")
-        if not images:
-            images = _split_images(root, data.get("train"))
-        limit = max(1, int(args.max_images))
-        copied = 0
-        labels_copied = 0
-        for image in images[:limit]:
+        source_counts[split] = len(images)
+        for image in images:
+            try:
+                digest = hashlib.sha256(image.read_bytes()).hexdigest()
+            except OSError:
+                dropped["unreadable_images"] += 1
+                continue
+            if digest in seen_hashes:
+                dropped["duplicate_images"] += 1
+                if args.dedupe:
+                    continue
             label = _label_for_image(image, root)
-            target_name = image.name
-            destination = output / "images" / split / target_name
-            if destination.exists():
-                destination = output / "images" / split / f"{copied:04d}_{target_name}"
+            if label is None:
+                dropped["missing_labels"] += 1
+                continue
+            classes = _label_class_ids(label, class_count)
+            if classes is None:
+                dropped["invalid_labels"] += 1
+                continue
+            seen_hashes.setdefault(digest, image)
+            samples.append(
+                {
+                    "image": image,
+                    "label": label,
+                    "classes": classes,
+                    "source_split": split,
+                    "sha256": digest,
+                }
+            )
+            if len(samples) % 50 == 0:
+                state.update(25.0, f"scanned {len(samples)} usable images")
+    if not samples:
+        raise ValueError("no usable images found after validation and de-duplication")
+
+    random.Random(int(args.seed)).shuffle(samples)
+    limit = max(1, int(args.max_images))
+    selected = samples[:limit]
+    val_count = 0
+    if len(selected) >= 2:
+        val_count = max(1, min(len(selected) - 1, round(len(selected) * val_ratio)))
+    train_samples = selected[val_count:] if val_count else selected
+    val_samples = selected[:val_count]
+    if not train_samples:
+        train_samples, val_samples = selected, []
+
+    class_counts: dict[str, dict[str, Any]] = {}
+    if isinstance(names, dict):
+        name_items = [(int(key), str(value)) for key, value in names.items()]
+    else:
+        name_items = [(index, str(value)) for index, value in enumerate(names)]
+    for class_id, class_name in name_items:
+        class_counts[str(class_id)] = {"name": class_name, "train": 0, "val": 0}
+    for sample in selected:
+        split_key = "val" if val_samples and sample in val_samples else "train"
+        for class_id in sample["classes"]:
+            bucket = class_counts.setdefault(
+                str(class_id), {"name": f"class {class_id}", "train": 0, "val": 0}
+            )
+            bucket[split_key] += 1
+
+    state.update(50.0, "copying curated splits")
+    copied_labels = 0
+    for split, items in (("train", train_samples), ("val", val_samples)):
+        for index, sample in enumerate(items):
+            image: Path = sample["image"]
+            destination = output / "images" / split / f"{index:05d}_{image.name}"
             shutil.copy2(image, destination)
-            if label is not None:
-                label_target = output / "labels" / split / destination.with_suffix(".txt").name
-                shutil.copy2(label, label_target)
-                labels_copied += 1
-            copied += 1
-            total_images += 1
-        total_labels += labels_copied
-        split_counts[split] = copied
-        state.update(40.0 if split == "train" else 80.0, f"copied {copied} {split} images")
-        print(f"[preprocess] {split}: copied {copied} images, {labels_copied} labels", flush=True)
+            label_target = output / "labels" / split / destination.with_suffix(".txt").name
+            shutil.copy2(sample["label"], label_target)
+            copied_labels += 1
+        print(f"[preprocess] {split}: copied {len(items)} images", flush=True)
+
     generated = {
         "path": output.resolve().as_posix(),
         "train": "images/train",
         "val": "images/val",
         "names": names,
     }
-    output.mkdir(parents=True, exist_ok=True)
     yaml_path = output / "dataset.yaml"
     with yaml_path.open("w", encoding="utf-8") as handle:
         yaml.safe_dump(generated, handle, allow_unicode=True, sort_keys=False)
+    warnings: list[str] = []
+    if not val_samples:
+        warnings.append("验证集为空；评估会退化为训练集自检")
+    if len(selected) < 2:
+        warnings.append("可用样本不足 2 张，无法进行独立验证")
+    if len(samples) > limit:
+        warnings.append(f"从 {len(samples)} 张可用图片中按策略截取 {limit} 张")
     manifest = {
+        "version": 2,
         "source_dataset": str(source_yaml),
         "dataset_yaml": str(yaml_path),
-        "images": total_images,
-        "labels": total_labels,
-        "splits": split_counts,
-        "classes": len(names) if isinstance(names, (list, dict)) else 0,
+        "policy": {
+            "max_images": limit,
+            "val_ratio": val_ratio,
+            "seed": int(args.seed),
+            "dedupe": bool(args.dedupe),
+        },
+        "source": {"root": str(root), "splits": source_counts, "usable": len(samples)},
+        "counts": {
+            "input_images": sum(source_counts.values()),
+            "kept_images": len(selected),
+            "train_images": len(train_samples),
+            "val_images": len(val_samples),
+            "labels": copied_labels,
+            **dropped,
+        },
+        "classes": len(name_items),
+        "class_counts": class_counts,
+        "warnings": warnings,
     }
     (output / "preprocess.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     metrics = {
-        "data/images": float(total_images),
-        "data/labels": float(total_labels),
-        "data/classes": float(manifest["classes"]),
+        "data/input_images": float(manifest["counts"]["input_images"]),
+        "data/images": float(len(selected)),
+        "data/train_images": float(len(train_samples)),
+        "data/val_images": float(len(val_samples)),
+        "data/duplicates": float(dropped["duplicate_images"]),
+        "data/invalid_labels": float(dropped["invalid_labels"]),
+        "data/classes": float(len(name_items)),
     }
     try:
         client.metrics({"epoch": 1, "step": 1, "values": metrics, "progress": 100})
     except Exception:
         pass
     state.update(100.0, "preprocess complete")
-    print(f"[preprocess] completed: {total_images} images -> {yaml_path}", flush=True)
+    print(
+        f"[preprocess] completed: kept={len(selected)} train={len(train_samples)} "
+        f"val={len(val_samples)} dropped={dropped} -> {yaml_path}",
+        flush=True,
+    )
     return metrics
 
 
@@ -420,29 +543,116 @@ def run_evaluation(
     state.update(5.0, "loading best weights")
     print(f"[evaluate] loading {args.weights}", flush=True)
     model = YOLO(args.weights, task="detect")
-    state.update(15.0, "evaluating validation split")
+    state.update(15.0, f"evaluating {args.split} split")
     results = model.val(
         data=args.data,
+        split=args.split,
         imgsz=args.imgsz,
         batch=args.batch,
+        conf=args.conf,
+        iou=args.iou,
+        max_det=args.max_det,
         device="cpu",
         workers=0,
-        plots=False,
+        plots=True,
+        save_json=True,
         project=args.project,
         name=args.name or args.task_id,
+        exist_ok=True,
         verbose=True,
     )
     raw = dict(getattr(results, "results_dict", {}) or {})
-    metrics = {
+    numeric = {
         str(key): float(value)
         for key, value in raw.items()
         if isinstance(value, (int, float)) and math.isfinite(float(value))
     }
-    if metrics:
+
+    def pick(*needles: str) -> float | None:
+        for key, value in numeric.items():
+            lowered = key.lower()
+            if any(needle.lower() in lowered for needle in needles):
+                return round(value, 6)
+        return None
+
+    metrics: dict[str, float] = {
+        "eval/precision": pick("precision(b)", "precision"),
+        "eval/recall": pick("recall(b)", "recall"),
+        "eval/map50": pick("map50(b)", "map50"),
+        "eval/map50_95": pick("map50-95(b)", "map50-95"),
+    }
+    metrics = {key: value for key, value in metrics.items() if value is not None}
+    precision = metrics.get("eval/precision")
+    recall = metrics.get("eval/recall")
+    if precision is not None and recall is not None and precision + recall > 0:
+        metrics["eval/f1"] = round(2 * precision * recall / (precision + recall), 6)
+
+    per_class: list[dict[str, Any]] = []
+    box = getattr(results, "box", None)
+    ap_indices_raw = getattr(box, "ap_class_index", None)
+    ap_values_raw = getattr(box, "maps", None)
+    ap_indices = list(ap_indices_raw) if ap_indices_raw is not None else []
+    ap_values = list(ap_values_raw) if ap_values_raw is not None else []
+    names = getattr(results, "names", {}) or {}
+    for class_id, ap in zip(ap_indices, ap_values):
+        index = int(class_id)
+        if isinstance(names, dict):
+            class_name = str(names.get(index, names.get(str(index), f"class {index}")))
+        else:
+            class_name = str(names[index]) if index < len(names) else f"class {index}"
+        per_class.append(
+            {
+                "class_id": index,
+                "class": class_name,
+                "ap50_95": round(float(ap), 4),
+            }
+        )
+    speed: dict[str, float] = {}
+    for key, value in (getattr(results, "speed", {}) or {}).items():
         try:
-            client.metrics({"epoch": 1, "step": 1, "values": metrics, "progress": 100})
-        except Exception:
-            pass
+            numeric_speed = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(numeric_speed):
+            speed[str(key)] = round(numeric_speed, 3)
+    latency_ms = round(sum(speed.values()), 3)
+    fps = round(1000 / latency_ms, 2) if latency_ms > 0 else None
+    metrics["eval/latency_ms"] = latency_ms
+    if fps is not None:
+        metrics["eval/fps"] = fps
+
+    run_dir = Path(args.project) / (args.name or args.task_id) if args.project else Path.cwd()
+    report = {
+        "version": 2,
+        "config": {
+            "weights": str(args.weights),
+            "data": str(args.data),
+            "split": args.split,
+            "imgsz": args.imgsz,
+            "batch": args.batch,
+            "conf": args.conf,
+            "iou": args.iou,
+            "max_det": args.max_det,
+            "cpu_cores": args.cpu_cores,
+        },
+        "overall": {key.removeprefix("eval/"): value for key, value in metrics.items()},
+        "per_class": per_class,
+        "speed_ms": speed,
+        "latency_ms_per_image": latency_ms,
+        "fps": fps,
+        "source": "ultralytics-val",
+    }
+    try:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "evaluation.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except OSError:
+        print("[evaluate] warning: could not persist evaluation.json", flush=True)
+    try:
+        client.metrics({"epoch": 1, "step": 1, "values": metrics, "progress": 100})
+    except Exception:
+        pass
     state.update(100.0, "evaluation complete")
     print(
         "[evaluate] " + ", ".join(f"{key}={value:.4f}" for key, value in sorted(metrics.items())),

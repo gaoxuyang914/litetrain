@@ -21,7 +21,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | README | 本文件：环境依赖、快速开始、架构图、HTTP 接口、测试与验收、已知边界 |
 | 可运行演示 | `scripts/setup.ps1` → `scripts/start_ray.ps1` → `scripts/start_backend.ps1` → `scripts/start_frontend.ps1`；黑盒验收脚本 `scripts/e2e_live.py` |
 | 规格与设计文档 | [docs/README.md](docs/README.md)：SDD 需求规格、技术实现设计、TDD 测试规格与验收矩阵 |
-| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，26 张真实运行截图 |
+| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，28 张真实运行截图 |
 | CI | [.github/workflows/ci.yml](.github/workflows/ci.yml)，GitHub Actions 后端测试 + 平台/后台前端 typecheck/build |
 
 ---
@@ -82,7 +82,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | 能力 | 实现 |
 | --- | --- |
 | 多节点集群模拟 | 1–8 个逻辑节点，节点总容量不超过平台 CPU 预算；节点上线/离线，按节点空闲容量和最低利用率调度；总览页提供实时拓扑、节点上的运行 Task 预览和主机负载 |
-| 预处理 → 训练 → 评估流水线 | 三条固定阶段，每阶段是普通 CPU Task；前一阶段成功后自动创建下一阶段；失败/取消终止后续阶段；API 重启后续跑 |
+| 预处理 → 训练 → 评估流水线 | 三条固定阶段，每阶段是普通 CPU Task；预处理做去重/校验/可复现切分，评估输出逐类 AP、阈值和延迟；前一阶段成功后自动创建下一阶段；失败/取消终止后续阶段 |
 | 数据集管理 | 内置 COCO128 + ZIP 上传、YAML 校验、图片/标签统计、版本注册、原始归档下载、软删除 |
 | 模型产物管理 | 扫描 `best.pt / last.pt / results.csv / args.yaml`，记录大小与 SHA-256，按任务/流水线查询并从 Web 下载 |
 | 基础权重导入 | 资产页上传 `.pt` checkpoint，校验扩展名/文件头/重名/512 MB 上限并计算 SHA-256；导入后立即可在提交训练页选择 |
@@ -111,6 +111,8 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 - 任务详情可一键跳转到「模型产物」并按任务过滤；产物页支持按产物名、任务 ID、SHA-256 搜索和 kind 筛选。
 - 已结束任务支持一键 **在原任务上重跑**：不创建新任务 ID，不追加 `· rerun` 名称，重跑时自动清理历史名称后缀；任务回到 `pending`，`attempt` 递增，原日志保留并追加 `MANUAL RERUN` 分隔线；任务详情展示每次运行历史。重跑会同步当前后台的**超时/重试上限**，不会沿用旧任务的限制快照。
 - 失败/取消任务支持 **从断点继续**：选择具体 checkpoint，可选完整恢复（优化器、学习率、epoch 进度）或仅加载权重；数据集哈希变化会拒绝恢复。完整恢复结束后会把 `best.pt / last.pt / results.csv / args.yaml` 同步回新任务目录，保证产物页可见。
+- 流水线 **预处理 v2**：扫描原数据、SHA-256 去重、标签格式/类别/坐标校验，按固定种子做可复现训练/验证切分，输出图片统计、类别分布和丢弃原因报告。
+- 流水线 **评估 v2**：支持选择 train/val、置信度/IoU/max-det，输出整体指标、逐类 AP50-95、CPU 延迟/FPS、阈值配置和 `evaluation.json` 报告。
 
 ### 额外实现
 
@@ -151,6 +153,12 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 ![模型权重导入](docs/screenshots/model-import.png)
 
+### 流水线 v2：可审计的预处理与评估
+
+![流水线阶段报告](docs/screenshots/pipeline-v2.png)
+
+![流水线预处理/评估配置](docs/screenshots/pipeline-create-v2.png)
+
 ### 多节点拓扑模拟
 
 ![多节点模拟](docs/screenshots/topology.png)
@@ -159,7 +167,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 ![Webhook](docs/screenshots/webhooks.png)
 
-更多截图：登录 [login.png](docs/screenshots/login.png)、后台管理 [admin.png](docs/screenshots/admin.png)、任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、模型权重导入 [model-import.png](docs/screenshots/model-import.png)、超限提醒 [task-limits.png](docs/screenshots/task-limits.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、原任务重跑历史 [rerun-inplace.png](docs/screenshots/rerun-inplace.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
+更多截图：登录 [login.png](docs/screenshots/login.png)、后台管理 [admin.png](docs/screenshots/admin.png)、任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、模型权重导入 [model-import.png](docs/screenshots/model-import.png)、超限提醒 [task-limits.png](docs/screenshots/task-limits.png)、流水线阶段报告 [pipeline-v2.png](docs/screenshots/pipeline-v2.png)、流水线配置 [pipeline-create-v2.png](docs/screenshots/pipeline-create-v2.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、原任务重跑历史 [rerun-inplace.png](docs/screenshots/rerun-inplace.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
 
 > 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.5 Ultralytics-style workspace**：白色侧栏与任务搜索、蓝色品牌、细边框浅色卡片、黑色主按钮、浅色集群拓扑、数据质量准入和运行清单；字号、对比度、焦点和 reduced-motion 均按 `deepseek-frontend-design` 技能自检。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
 
@@ -863,7 +871,7 @@ cd backend
 ..\.venv\Scripts\python -m pytest
 ```
 
-结果：**45 passed**。测试覆盖 P0/P1 + P2：
+结果：**46 passed**。测试覆盖 P0/P1 + P2：
 
 - 创建、分页、状态筛选、ID/名称搜索；
 - 表单选项和命令预览；
@@ -956,6 +964,7 @@ LATER          status=succeeded runtime=91s
 - **抢占粒度**：只在 checkpoint 边界恢复；无 checkpoint 不抢占，当前 epoch 的进度会回退到最近 checkpoint。抢占只针对独立任务，不处理流水线阶段。
 - **数据集删除是软删除**：记录和原始归档保留；不做对象存储生命周期管理。
 - **模型权重导入**：只校验扩展名、文件头、路径、重名和大小，不会在导入时执行或反序列化 `.pt`；生产可再加病毒扫描和模型结构校验。
+- **流水线预处理**：只做文件内容的精确 SHA-256 去重，不做感知哈希；标签校验覆盖格式、类别范围、坐标范围，但不替代人工质检。
 - **Webhook 未做生产级 SSRF 防护**：只校验 http(s)；生产应增加内网/回环地址拦截、secret 加密和 dead-letter 重放。
 - **本地子进程模式**：没有 Ray 的进程隔离和逻辑资源预留；平台仍按账本限制。
 - **Windows**：使用 Redis 5 时必须 `protocol=2`；训练进程需要 `KMP_DUPLICATE_LIB_OK=TRUE`（执行器自动设置）；Ray 启动由 `scripts/start_ray.ps1` 处理环境变量。
