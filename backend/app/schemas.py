@@ -624,6 +624,19 @@ class ArtifactListResponse(BaseModel):
     total: int
 
 
+class ModelWeightOut(BaseModel):
+    name: str
+    size_bytes: int
+    modified_at: UtcDateTime
+    sha256: str | None = None
+    is_builtin: bool = False
+
+
+class ModelWeightListResponse(BaseModel):
+    items: list[ModelWeightOut]
+    total: int
+
+
 class PipelineCreate(BaseModel):
     name: str = Field(default="", max_length=100)
     source_dataset: str = Field(default="coco128.yaml", min_length=1, max_length=240)

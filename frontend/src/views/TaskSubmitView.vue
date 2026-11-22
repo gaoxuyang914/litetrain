@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage } from 'element-plus'
 import {
@@ -20,6 +20,7 @@ import type { PreviewResponse, TaskCreatePayload, TaskOptions } from '@/types/ta
 import { copyText, formatDuration } from '@/utils/format'
 
 const router = useRouter()
+const route = useRoute()
 const formRef = ref<FormInstance>()
 const options = ref<TaskOptions | null>(null)
 const datasets = ref<Dataset[]>([])
@@ -191,8 +192,14 @@ async function loadOptions() {
     options.value = data
     datasets.value = datasetList
     pageError.value = null
+    const requestedModel =
+      typeof route.query.model === 'string' && data.models.includes(route.query.model)
+        ? route.query.model
+        : null
     Object.assign(form, {
-      model: data.models.includes(data.defaults.model) ? data.defaults.model : data.models[0] ?? data.defaults.model,
+      model:
+        requestedModel ??
+        (data.models.includes(data.defaults.model) ? data.defaults.model : data.models[0] ?? data.defaults.model),
       dataset: data.datasets.includes(data.defaults.dataset)
         ? data.defaults.dataset
         : data.datasets[0] ?? data.defaults.dataset,
@@ -343,14 +350,28 @@ async function refreshPolicyLimits() {
   }
 }
 
+async function refreshModelOptions() {
+  try {
+    const data = await api.getOptions()
+    options.value = data
+    if (!data.models.includes(form.model)) {
+      form.model = data.models[0] ?? form.model
+    }
+  } catch {
+    // A stale model name will still be rejected by the server on preview/submit.
+  }
+}
+
 onMounted(() => {
   loadOptions()
   window.addEventListener('litetrain:settings-updated', refreshPolicyLimits)
+  window.addEventListener('litetrain:models-updated', refreshModelOptions)
 })
 
 onBeforeUnmount(() => {
   if (previewTimer) window.clearTimeout(previewTimer)
   window.removeEventListener('litetrain:settings-updated', refreshPolicyLimits)
+  window.removeEventListener('litetrain:models-updated', refreshModelOptions)
 })
 </script>
 

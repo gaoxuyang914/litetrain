@@ -162,7 +162,14 @@ def build_worker_command(
 
 
 def list_models(settings: Settings) -> list[str]:
-    return sorted(path.name for path in settings.weights_dir.glob("*.pt"))
+    root = settings.weights_dir
+    if not root.is_dir():
+        return []
+    return sorted(
+        path.name
+        for path in root.iterdir()
+        if path.is_file() and path.suffix.lower() == ".pt"
+    )
 
 
 def list_datasets(settings: Settings) -> list[str]:

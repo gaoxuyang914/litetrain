@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api.admin import router as admin_router
-from app.api.assets import artifacts_router, datasets_router
+from app.api.assets import artifacts_router, datasets_router, models_router
 from app.api.auth import router as auth_router
 from app.api.cluster import router as cluster_router
 from app.api.internal import router as internal_router
@@ -125,6 +125,7 @@ def create_app(
     app.include_router(pipelines_router, prefix=prefix)
     app.include_router(datasets_router, prefix=prefix)
     app.include_router(artifacts_router, prefix=prefix)
+    app.include_router(models_router, prefix=prefix)
     app.include_router(webhooks_router, prefix=prefix)
     app.include_router(settings_router, prefix=prefix)
 
@@ -153,6 +154,7 @@ def create_app(
             (
                 f"{prefix}/datasets",
                 f"{prefix}/artifacts",
+                f"{prefix}/models",
                 f"{prefix}/webhooks",
             )
         ):

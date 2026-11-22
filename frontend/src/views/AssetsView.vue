@@ -5,6 +5,7 @@ import {
   Box,
   Connection,
   CopyDocument,
+  Cpu,
   Delete,
   Download,
   FolderOpened,
@@ -16,15 +17,23 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { api } from '@/api/client'
-import type { Artifact, Dataset, DatasetQuality, WebhookDelivery, WebhookEndpoint } from '@/types/p2'
+import type {
+  Artifact,
+  Dataset,
+  DatasetQuality,
+  ModelWeight,
+  WebhookDelivery,
+  WebhookEndpoint,
+} from '@/types/p2'
 import { copyText, formatBytes, formatDate, timeAgo } from '@/utils/format'
 
 const router = useRouter()
 const route = useRoute()
-type Tab = 'datasets' | 'artifacts' | 'webhooks'
+type Tab = 'datasets' | 'models' | 'artifacts' | 'webhooks'
 const activeTab = ref<Tab>('datasets')
 
 const datasets = ref<Dataset[]>([])
+const models = ref<ModelWeight[]>([])
 const artifacts = ref<Artifact[]>([])
 const artifactFilter = ref<'all' | 'model' | 'metrics' | 'config'>('all')
 const artifactQuery = ref('')
@@ -42,6 +51,11 @@ const uploading = ref(false)
 const uploadFile = ref<File | null>(null)
 const uploadRef = ref()
 const uploadForm = reactive({ name: '', version: 'v1', description: '' })
+
+const modelUploadOpen = ref(false)
+const modelUploading = ref(false)
+const modelFile = ref<File | null>(null)
+const modelUploadRef = ref()
 
 const webhookOpen = ref(false)
 const webhookBusy = ref(false)
@@ -185,7 +199,8 @@ const artifactFilters: Array<{ key: 'all' | 'model' | 'metrics' | 'config'; labe
 
 const tabs: Array<{ key: Tab; label: string; caption: string; icon: unknown }> = [
   { key: 'datasets', label: '数据集', caption: '版本与导入', icon: FolderOpened },
-  { key: 'artifacts', label: '模型产物', caption: '权重与结果', icon: Box },
+  { key: 'models', label: '模型权重', caption: '基础权重', icon: Cpu },
+  { key: 'artifacts', label: '模型产物', caption: '训练结果', icon: Box },
   { key: 'webhooks', label: 'Webhooks', caption: '签名投递', icon: Connection },
 ]
 
@@ -206,6 +221,18 @@ async function loadDatasets(silent = false) {
     error.value = null
   } catch (err) {
     error.value = err instanceof Error ? err.message : '加载数据集失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadModels(silent = false) {
+  if (!silent) loading.value = true
+  try {
+    models.value = await api.listModelWeights()
+    error.value = null
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '加载模型权重失败'
   } finally {
     loading.value = false
   }
@@ -244,6 +271,7 @@ async function load(silent = false) {
   refreshing.value = true
   try {
     if (activeTab.value === 'datasets') await loadDatasets(silent)
+    else if (activeTab.value === 'models') await loadModels(silent)
     else if (activeTab.value === 'artifacts') await loadArtifacts(silent)
     else await loadWebhooks(silent)
   } finally {
@@ -262,6 +290,61 @@ function resetUpload() {
 function openUpload() {
   resetUpload()
   uploadOpen.value = true
+}
+
+function resetModelUpload() {
+  modelFile.value = null
+  modelUploadRef.value?.clearFiles()
+}
+
+function openModelUpload() {
+  resetModelUpload()
+  modelUploadOpen.value = true
+}
+
+function onModelFileChange(file: any) {
+  const raw = file.raw as File | undefined
+  if (!raw) return
+  if (!raw.name.toLowerCase().endsWith('.pt')) {
+    ElMessage.warning('只支持 .pt 模型权重')
+    modelFile.value = null
+    modelUploadRef.value?.clearFiles()
+    return
+  }
+  if (raw.size > 512 * 1024 * 1024) {
+    ElMessage.warning('模型权重不能超过 512 MB')
+    modelFile.value = null
+    modelUploadRef.value?.clearFiles()
+    return
+  }
+  modelFile.value = raw
+}
+
+function onModelFileRemove() {
+  modelFile.value = null
+}
+
+async function submitModelUpload() {
+  if (!modelFile.value) {
+    ElMessage.warning('请选择 .pt 模型权重文件')
+    return
+  }
+  modelUploading.value = true
+  try {
+    const model = await api.uploadModelWeight(modelFile.value)
+    ElMessage.success(`${model.name} 已导入，可在提交训练时选择`)
+    modelUploadOpen.value = false
+    await loadModels(true)
+    window.dispatchEvent(new CustomEvent('litetrain:models-updated'))
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '导入模型权重失败')
+  } finally {
+    modelUploading.value = false
+  }
+}
+
+function useModel(model: any) {
+  router.push({ name: 'task-submit', query: { model: model.name } })
 }
 
 function onFileChange(file: any) {
@@ -453,7 +536,7 @@ function clearArtifactTask() {
 onMounted(async () => {
   const requestedTab = String(route.query.tab || '')
   const requestedTask = String(route.query.task_id || '')
-  if (['datasets', 'artifacts', 'webhooks'].includes(requestedTab)) {
+  if (['datasets', 'models', 'artifacts', 'webhooks'].includes(requestedTab)) {
     activeTab.value = requestedTab as Tab
   } else if (requestedTask) {
     activeTab.value = 'artifacts'
@@ -462,6 +545,7 @@ onMounted(async () => {
   await Promise.all([
     load(),
     api.listDatasets().then((items) => (datasets.value = items)).catch(() => undefined),
+    api.listModelWeights().then((items) => (models.value = items)).catch(() => undefined),
     api.listArtifacts().then((items) => (artifacts.value = items)).catch(() => undefined),
     api.listWebhooks().then((items) => (webhooks.value = items)).catch(() => undefined),
     api.listWebhookDeliveries().then((items) => (deliveries.value = items)).catch(() => undefined),
@@ -490,6 +574,9 @@ onBeforeUnmount(() => {
         <el-button class="page-icon-button" :icon="Refresh" :loading="refreshing" title="刷新" @click="load(true)" />
         <el-button v-if="activeTab === 'datasets'" type="primary" :icon="UploadFilled" @click="openUpload">
           导入数据集
+        </el-button>
+        <el-button v-else-if="activeTab === 'models'" type="primary" :icon="UploadFilled" @click="openModelUpload">
+          导入模型权重
         </el-button>
         <el-button v-else-if="activeTab === 'webhooks'" type="primary" :icon="Plus" @click="openWebhookCreate">
           新建 Webhook
@@ -540,7 +627,7 @@ onBeforeUnmount(() => {
         <span class="tab-spacer"></span>
         <span class="tag-soft" :class="{ accent: activeTab === 'webhooks' && activeWebhooks }">
           <span class="dot" :class="{ pulse: activeTab === 'webhooks' && activeWebhooks }"></span>
-          {{ activeTab === 'datasets' ? '数据登记' : activeTab === 'artifacts' ? '模型产物' : '投递箱' }}
+          {{ activeTab === 'datasets' ? '数据登记' : activeTab === 'models' ? '基础权重' : activeTab === 'artifacts' ? '模型产物' : '投递箱' }}
         </span>
       </div>
 
@@ -634,6 +721,69 @@ onBeforeUnmount(() => {
             <el-button type="primary" @click="router.push({ name: 'pipelines' })">前往训练流水线</el-button>
             <el-button text @click="openUpload">上传新版本</el-button>
           </div>
+        </div>
+      </template>
+
+      <template v-else-if="activeTab === 'models'">
+        <div class="model-toolbar">
+          <div>
+            <span class="soft-label">基础权重目录</span>
+            <p>导入的 .pt 文件会出现在提交训练页的模型下拉框中，和内置权重一样参与调度。</p>
+          </div>
+          <span class="filter-count mono">{{ models.length }} 个文件</span>
+        </div>
+        <el-table :data="models" row-key="name" class="asset-table">
+          <el-table-column label="权重文件" min-width="280">
+            <template #default="{ row }">
+              <div class="model-cell">
+                <span class="model-icon"><el-icon><Cpu /></el-icon></span>
+                <div>
+                  <strong>{{ row.name }}</strong>
+                  <span class="mono">{{ row.is_builtin ? '内置基础权重' : '导入权重' }} · .pt</span>
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="大小" width="120">
+            <template #default="{ row }"><span class="mono">{{ formatBytes(row.size_bytes) }}</span></template>
+          </el-table-column>
+          <el-table-column label="更新时间" width="150">
+            <template #default="{ row }"><span class="muted small">{{ formatDate(row.modified_at) }}</span></template>
+          </el-table-column>
+          <el-table-column label="来源" width="120">
+            <template #default="{ row }">
+              <span class="soft-tag" :class="{ builtin: row.is_builtin }">{{ row.is_builtin ? '平台内置' : '本地上传' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="" width="140" align="right">
+            <template #default="{ row }">
+              <el-button text size="small" @click="useModel(row)">用于训练</el-button>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div class="empty-state">
+              <span class="empty-icon"><el-icon><Cpu /></el-icon></span>
+              <strong>还没有模型权重</strong>
+              <span>导入一个 .pt checkpoint，即可在提交训练时直接选用。</span>
+              <el-button type="primary" plain size="small" @click="openModelUpload">导入模型权重</el-button>
+            </div>
+          </template>
+        </el-table>
+        <div class="dataset-mobile-list">
+          <article v-for="row in models" :key="row.name" class="dataset-mobile-card">
+            <div class="mobile-card-head">
+              <span class="dataset-icon"><el-icon><Cpu /></el-icon></span>
+              <div><strong>{{ row.name }}</strong><span class="mono">{{ formatBytes(row.size_bytes) }} · .pt</span></div>
+              <span class="soft-tag" :class="{ builtin: row.is_builtin }">{{ row.is_builtin ? '内置' : '已导入' }}</span>
+            </div>
+            <div class="mobile-card-meta">
+              <span>{{ row.is_builtin ? '平台内置' : '本地上传' }}</span>
+              <span>{{ formatDate(row.modified_at) }}</span>
+            </div>
+            <div class="mobile-card-actions">
+              <el-button size="small" text @click="useModel(row)">用于训练</el-button>
+            </div>
+          </article>
         </div>
       </template>
 
@@ -886,6 +1036,40 @@ onBeforeUnmount(() => {
       <template #footer>
         <el-button @click="uploadOpen = false">取消</el-button>
         <el-button type="primary" :loading="uploading" @click="submitUpload">导入并登记</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="modelUploadOpen" title="导入模型权重" width="560px">
+      <el-upload
+        ref="modelUploadRef"
+        drag
+        :auto-upload="false"
+        :limit="1"
+        accept=".pt"
+        :on-change="onModelFileChange"
+        :on-remove="onModelFileRemove"
+      >
+        <el-icon class="upload-icon"><UploadFilled /></el-icon>
+        <div class="el-upload__text">拖拽 .pt 权重到此处，或 <em>点击选择</em></div>
+        <template #tip>
+          <div class="el-upload__tip">支持 Ultralytics / PyTorch .pt checkpoint，最大 512 MB；文件名会作为训练模型名。</div>
+        </template>
+      </el-upload>
+      <div v-if="modelFile" class="model-file-summary">
+        <span class="model-file-icon"><el-icon><Cpu /></el-icon></span>
+        <div>
+          <strong>{{ modelFile.name }}</strong>
+          <span class="mono">{{ formatBytes(modelFile.size) }}</span>
+        </div>
+        <span class="soft-tag">待导入</span>
+      </div>
+      <div class="model-import-notes">
+        <p>导入时会校验扩展名、文件头、重名和 512 MB 上限，并计算 SHA-256。</p>
+        <p>平台只保存权重文件，不会在导入时执行或反序列化其中的代码。</p>
+      </div>
+      <template #footer>
+        <el-button @click="modelUploadOpen = false">取消</el-button>
+        <el-button type="primary" :loading="modelUploading" @click="submitModelUpload">导入权重</el-button>
       </template>
     </el-dialog>
 
@@ -2746,6 +2930,127 @@ html.dark .asset-tab.active strong {
 
   .filter-count {
     margin-left: auto;
+  }
+}
+
+.model-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.model-toolbar p {
+  max-width: 680px;
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.model-cell {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.model-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--accent-line);
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 16px;
+}
+
+.model-cell > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.model-cell strong {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-cell span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.model-file-summary {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-soft);
+}
+
+.model-file-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.model-file-summary > div {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.model-file-summary strong {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-file-summary span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.model-import-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.model-import-notes p {
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .model-toolbar {
+    flex-direction: column;
   }
 }
 </style>

@@ -21,7 +21,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | README | 本文件：环境依赖、快速开始、架构图、HTTP 接口、测试与验收、已知边界 |
 | 可运行演示 | `scripts/setup.ps1` → `scripts/start_ray.ps1` → `scripts/start_backend.ps1` → `scripts/start_frontend.ps1`；黑盒验收脚本 `scripts/e2e_live.py` |
 | 规格与设计文档 | [docs/README.md](docs/README.md)：SDD 需求规格、技术实现设计、TDD 测试规格与验收矩阵 |
-| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，25 张真实运行截图 |
+| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，26 张真实运行截图 |
 | CI | [.github/workflows/ci.yml](.github/workflows/ci.yml)，GitHub Actions 后端测试 + 平台/后台前端 typecheck/build |
 
 ---
@@ -85,8 +85,9 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | 预处理 → 训练 → 评估流水线 | 三条固定阶段，每阶段是普通 CPU Task；前一阶段成功后自动创建下一阶段；失败/取消终止后续阶段；API 重启后续跑 |
 | 数据集管理 | 内置 COCO128 + ZIP 上传、YAML 校验、图片/标签统计、版本注册、原始归档下载、软删除 |
 | 模型产物管理 | 扫描 `best.pt / last.pt / results.csv / args.yaml`，记录大小与 SHA-256，按任务/流水线查询并从 Web 下载 |
+| 基础权重导入 | 资产页上传 `.pt` checkpoint，校验扩展名/文件头/重名/512 MB 上限并计算 SHA-256；导入后立即可在提交训练页选择 |
 | 状态 Webhook | 注册 endpoint + 事件订阅；事务性 outbox；HMAC-SHA256 签名；指数退避重试；投递记录与手动测试 |
-| 新增 Web 页面 | `训练流水线`、`数据与产物`（数据集 / 产物 / Webhooks 三个 tab）；总览页增加多节点模拟和节点上下线操作 |
+| 新增 Web 页面 | `训练流水线`、`数据与产物`（数据集 / 模型权重 / 产物 / Webhooks 四个 tab）；总览页增加多节点模拟和节点上下线操作 |
 
 ### v2.4 数据与实验闭环（P0 优化）
 
@@ -146,6 +147,10 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 ![模型产物](docs/screenshots/artifacts.png)
 
+### 模型权重导入
+
+![模型权重导入](docs/screenshots/model-import.png)
+
 ### 多节点拓扑模拟
 
 ![多节点模拟](docs/screenshots/topology.png)
@@ -154,7 +159,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 ![Webhook](docs/screenshots/webhooks.png)
 
-更多截图：登录 [login.png](docs/screenshots/login.png)、后台管理 [admin.png](docs/screenshots/admin.png)、任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、超限提醒 [task-limits.png](docs/screenshots/task-limits.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、原任务重跑历史 [rerun-inplace.png](docs/screenshots/rerun-inplace.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
+更多截图：登录 [login.png](docs/screenshots/login.png)、后台管理 [admin.png](docs/screenshots/admin.png)、任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、模型权重导入 [model-import.png](docs/screenshots/model-import.png)、超限提醒 [task-limits.png](docs/screenshots/task-limits.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、原任务重跑历史 [rerun-inplace.png](docs/screenshots/rerun-inplace.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
 
 > 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.5 Ultralytics-style workspace**：白色侧栏与任务搜索、蓝色品牌、细边框浅色卡片、黑色主按钮、浅色集群拓扑、数据质量准入和运行清单；字号、对比度、焦点和 reduced-motion 均按 `deepseek-frontend-design` 技能自检。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
 
@@ -203,6 +208,7 @@ flowchart LR
 | `backend/app/services/resources.py` | CPU 账本、多节点拓扑、用户配额、集群快照 |
 | `backend/app/services/pipelines.py` | 三阶段流水线创建、推进、取消、产物衔接 |
 | `backend/app/services/datasets.py` | 内置数据集注册、ZIP 导入、YAML 解析、统计 |
+| `backend/app/services/models.py` | 基础模型权重扫描、上传校验与安全入库 |
 | `backend/app/services/artifacts.py` | run 目录扫描、SHA-256、产物登记与安全下载 |
 | `backend/app/services/webhooks.py` | endpoint CRUD、outbox 入队、HMAC 签名、重试 dispatcher |
 | `backend/app/services/executors.py` | Ray detached actor / 本地子进程执行后端；按阶段生成命令 |
@@ -211,7 +217,7 @@ flowchart LR
 | `backend/app/services/tasks.py` | 任务 CRUD、队列位置、指标/事件查询 |
 | `backend/app/api/tasks.py` | 任务 API + SSE |
 | `backend/app/api/pipelines.py` | 流水线 API |
-| `backend/app/api/assets.py` | 数据集/产物 API |
+| `backend/app/api/assets.py` | 数据集/模型权重/产物 API |
 | `backend/app/api/webhooks.py` | Webhook API |
 | `backend/app/api/internal.py` | worker 心跳和指标内部接口 |
 | `frontend/src/views/OverviewView.vue` | 集群总览、多节点拓扑对话框、节点上下线 |
@@ -219,7 +225,7 @@ flowchart LR
 | `frontend/src/views/TaskSubmitView.vue` | 任务表单与命令预览 |
 | `frontend/src/views/TaskDetailView.vue` | 详情、终端、指标、事件 |
 | `frontend/src/views/PipelinesView.vue` | 流水线列表、创建、阶段进度、详情抽屉 |
-| `frontend/src/views/AssetsView.vue` | 数据集 / 产物 / Webhooks |
+| `frontend/src/views/AssetsView.vue` | 数据集 / 模型权重 / 产物 / Webhooks |
 | `frontend/src/components/LogTerminal.vue` | SSE + 增量轮询 + 虚拟滚动 + 高亮 |
 | `frontend/src/components/MetricsPanel.vue` | YOLO/资源折线图 |
 
@@ -411,6 +417,8 @@ npm run dev:admin
 **流水线**：侧边栏 → “训练流水线” → 新建流水线，选择 `coco128.yaml` 或上传的数据集，阶段会依次执行并自动登记 `best.pt`。
 
 **数据集上传**：侧边栏 → “数据与产物” → “导入数据集”，上传包含 YOLO `dataset.yaml`、images、labels 的 zip。
+
+**模型权重导入**：侧边栏 → “数据与产物” → “模型权重” → “导入模型权重”，上传 `.pt` checkpoint；导入成功后可直接点“用于训练”，提交页会自动选中该权重。
 
 **Webhook**：
 
@@ -711,6 +719,8 @@ Base：`http://127.0.0.1:8000/api/v1`；完整 OpenAPI 在 `/docs`。
 | `GET` | `/datasets/{id}/quality` | 质量摘要、issue 列表、报告 URL |
 | `POST` | `/datasets/{id}/quality/ack` | 确认警告，允许进入训练 |
 | `GET` | `/datasets/{id}/quality/report` | 打开 HTML 质量报告 |
+| `GET` | `/models` | 基础 `.pt` 权重列表 |
+| `POST` | `/models/upload` | `multipart/form-data`：file；校验 `.pt` 文件头、重名和 512 MB 上限，返回 SHA-256 |
 | `GET` | `/artifacts` | 支持 `task_id` / `pipeline_id` / `kind` 过滤 |
 | `GET` | `/artifacts/{id}/download` | 下载权重/指标/配置 |
 
@@ -853,7 +863,7 @@ cd backend
 ..\.venv\Scripts\python -m pytest
 ```
 
-结果：**42 passed**。测试覆盖 P0/P1 + P2：
+结果：**45 passed**。测试覆盖 P0/P1 + P2：
 
 - 创建、分页、状态筛选、ID/名称搜索；
 - 表单选项和命令预览；
@@ -945,6 +955,7 @@ LATER          status=succeeded runtime=91s
 - **默认管理员密码**：首次启动为 `admin/admin123`；生产部署必须通过环境变量修改。
 - **抢占粒度**：只在 checkpoint 边界恢复；无 checkpoint 不抢占，当前 epoch 的进度会回退到最近 checkpoint。抢占只针对独立任务，不处理流水线阶段。
 - **数据集删除是软删除**：记录和原始归档保留；不做对象存储生命周期管理。
+- **模型权重导入**：只校验扩展名、文件头、路径、重名和大小，不会在导入时执行或反序列化 `.pt`；生产可再加病毒扫描和模型结构校验。
 - **Webhook 未做生产级 SSRF 防护**：只校验 http(s)；生产应增加内网/回环地址拦截、secret 加密和 dead-letter 重放。
 - **本地子进程模式**：没有 Ray 的进程隔离和逻辑资源预留；平台仍按账本限制。
 - **Windows**：使用 Redis 5 时必须 `protocol=2`；训练进程需要 `KMP_DUPLICATE_LIB_OK=TRUE`（执行器自动设置）；Ray 启动由 `scripts/start_ray.ps1` 处理环境变量。

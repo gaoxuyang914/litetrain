@@ -24,6 +24,7 @@ measure 4.5:1–19.0:1.
 | `pipelines.png` | Serial preprocess → train → evaluate pipelines, both completed |
 | `assets.png` | Dataset registry with quality status and a warning dataset |
 | `artifacts.png` | Model artifact registry with kind filter, SHA-256 and download |
+| `model-import.png` | Base `.pt` weight import and train-link action |
 | `webhooks.png` | Signed webhook endpoint, delivery outbox and HMAC header hint |
 | `topology.png` | Multi-node topology editor |
 | `sidebar-collapsed.png` | Desktop navigation rail collapsed to icons |

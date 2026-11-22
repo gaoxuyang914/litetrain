@@ -77,6 +77,14 @@ export interface Artifact {
   download_url: string
 }
 
+export interface ModelWeight {
+  name: string
+  size_bytes: number
+  modified_at: string
+  sha256: string | null
+  is_builtin: boolean
+}
+
 export interface PipelineStageTask {
   id: string
   name: string

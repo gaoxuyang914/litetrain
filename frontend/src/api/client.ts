@@ -31,6 +31,7 @@ import type {
   BenchmarkRun,
   Dataset,
   DatasetQuality,
+  ModelWeight,
   NodeTopologyItem,
   NodeTopologyResponse,
   Pipeline,
@@ -308,6 +309,21 @@ export const api = {
     const { data } = await http.post<Dataset>('/datasets/upload', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 300_000,
+    })
+    return data
+  },
+
+  async listModelWeights(): Promise<ModelWeight[]> {
+    const { data } = await http.get<{ items: ModelWeight[]; total: number }>('/models')
+    return data.items
+  },
+
+  async uploadModelWeight(file: File): Promise<ModelWeight> {
+    const form = new FormData()
+    form.append('file', file)
+    const { data } = await http.post<ModelWeight>('/models/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 600_000,
     })
     return data
   },

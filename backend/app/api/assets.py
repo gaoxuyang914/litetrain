@@ -1,7 +1,8 @@
-"""Dataset registry and model artifact APIs."""
+"""Dataset registry, model weights and model artifact APIs."""
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -15,13 +16,75 @@ from app.schemas import (
     DatasetOut,
     DatasetQualityAck,
     DatasetQualityOut,
+    ModelWeightListResponse,
+    ModelWeightOut,
     QualityIssueOut,
 )
 from app.services.datasets import DatasetError, MAX_UPLOAD_BYTES
+from app.services.models import (
+    MAX_MODEL_BYTES,
+    ModelWeightError,
+    checkpoint_prefix_valid,
+    commit_upload,
+    list_weights,
+    target_path,
+    validate_upload_name,
+)
 from app.services.quality import QualityError
 
 datasets_router = APIRouter(prefix="/datasets", tags=["datasets"])
 artifacts_router = APIRouter(prefix="/artifacts", tags=["artifacts"])
+models_router = APIRouter(prefix="/models", tags=["models"])
+
+
+@models_router.get("", response_model=ModelWeightListResponse, summary="Base model weights")
+def list_model_weights(ctx: AppContext = Depends(get_ctx)) -> ModelWeightListResponse:
+    return list_weights(ctx.settings)
+
+
+@models_router.post(
+    "/upload",
+    response_model=ModelWeightOut,
+    status_code=201,
+    summary="Import a .pt model weight file",
+)
+async def upload_model_weight(
+    file: UploadFile = File(...),
+    ctx: AppContext = Depends(get_ctx),
+) -> ModelWeightOut:
+    try:
+        name = validate_upload_name(file.filename)
+        target_path(ctx.settings, name)
+    except ModelWeightError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    temporary = ctx.settings.tmp_dir / f"model-{uuid.uuid4().hex}.pt"
+    digest = hashlib.sha256()
+    prefix = b""
+    total = 0
+    try:
+        with temporary.open("wb") as handle:
+            while chunk := await file.read(1024 * 1024):
+                total += len(chunk)
+                if total > MAX_MODEL_BYTES:
+                    raise HTTPException(status_code=413, detail="模型权重不能超过 512 MB")
+                if not prefix:
+                    prefix = chunk[:4]
+                digest.update(chunk)
+                handle.write(chunk)
+        if total == 0:
+            raise HTTPException(status_code=422, detail="上传的模型权重为空")
+        if not checkpoint_prefix_valid(prefix):
+            raise HTTPException(
+                status_code=422,
+                detail="文件不是可识别的 PyTorch 权重（需为 .pt checkpoint）",
+            )
+        return commit_upload(ctx.settings, name, temporary, digest.hexdigest())
+    except ModelWeightError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    finally:
+        if temporary.exists():
+            temporary.unlink(missing_ok=True)
 
 
 @datasets_router.get("", response_model=DatasetListResponse, summary="Managed datasets")
