@@ -289,12 +289,19 @@ async function openDetail(pipeline: Pipeline) {
 }
 
 function canResumePipeline(pipeline: Pipeline): boolean {
-  return (
-    ['failed', 'cancelled'].includes(pipeline.status) &&
+  return ['failed', 'cancelled'].includes(pipeline.status)
+}
+
+function resumeHint(pipeline: Pipeline): string {
+  if (pipeline.status === 'succeeded') return '流水线已完成，无需继续'
+  if (
     pipeline.stages.some(
       (stage) => stage.status === 'succeeded' || stage.task?.status === 'succeeded',
     )
-  )
+  ) {
+    return '从最近成功阶段继续'
+  }
+  return '从头重新执行三个阶段'
 }
 
 async function resumePipeline(pipeline: Pipeline) {
@@ -536,7 +543,7 @@ onBeforeUnmount(() => {
               :icon="Refresh"
               :loading="resumingId === pipeline.id"
               :disabled="!canResumePipeline(pipeline)"
-              :title="pipeline.status === 'succeeded' ? '流水线已完成，无需继续' : '没有可继续的成功阶段'"
+              :title="resumeHint(pipeline)"
               @click="resumePipeline(pipeline)"
             >
               继续

@@ -726,7 +726,7 @@ Base：`http://127.0.0.1:8000/api/v1`；完整 OpenAPI 在 `/docs`。
 | `GET` | `/pipelines` | 分页列表 |
 | `GET` | `/pipelines/{id}` | 阶段、任务、进度、产物 |
 | `POST` | `/pipelines/{id}/rerun` | 在原流水线上重跑，复用阶段任务 ID 并按顺序执行 |
-| `POST` | `/pipelines/{id}/resume` | 从最近成功阶段继续失败/取消的流水线 |
+| `POST` | `/pipelines/{id}/resume` | 从最近成功阶段继续失败/取消的流水线；没有成功阶段时从头重跑 |
 | `POST` | `/pipelines/{id}/cancel` | 取消当前阶段及后续阶段 |
 
 ### 数据集与产物
@@ -886,7 +886,7 @@ cd backend
 ..\.venv\Scripts\python -m pytest
 ```
 
-结果：**53 passed**。测试覆盖 P0/P1 + P2：
+结果：**54 passed**。测试覆盖 P0/P1 + P2：
 
 - 创建、分页、状态筛选、ID/名称搜索；
 - 表单选项和命令预览；

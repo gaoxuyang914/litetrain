@@ -666,9 +666,18 @@ class PipelineService:
                             last_succeeded = stage.sequence
                             continue
                 break
+            if last_succeeded >= 0:
+                next_waiting = next((stage for stage in stages if stage.sequence > last_succeeded), None)
+                if next_waiting is None:
+                    last_succeeded = -1
             if last_succeeded < 0:
-                raise PipelineError("pipeline has no successful stage to resume from", 409)
-            next_waiting = next((stage for stage in stages if stage.sequence > last_succeeded), None)
+                first_stage = stages[0]
+                if first_stage.task_id is None:
+                    raise PipelineError("pipeline has no stage task to resume", 409)
+                first_task_id = first_stage.task_id
+                next_waiting = first_stage
+            else:
+                first_task_id = None
             for stage in stages:
                 if stage.sequence > last_succeeded:
                     stage.status = "waiting"
@@ -684,9 +693,35 @@ class PipelineService:
                 session,
                 pipeline,
                 "pipeline.reopened",
-                f"Pipeline resumed after stage {last_succeeded + 1}",
+                "Pipeline restarted from the first stage"
+                if last_succeeded < 0
+                else f"Pipeline resumed after stage {last_succeeded + 1}",
             )
             session.flush()
+        if first_task_id is not None:
+            if self.tasks is None:
+                raise PipelineError("task service is not configured", 500)
+            self.tasks.rerun(first_task_id)
+            with self.db.session() as session:
+                pipeline = session.get(Pipeline, pipeline_id)
+                stage = session.scalar(
+                    select(PipelineStage).where(
+                        PipelineStage.pipeline_id == pipeline_id,
+                        PipelineStage.stage_key == next_waiting.stage_key,
+                    )
+                )
+                task = session.get(Task, first_task_id)
+                if pipeline is None or stage is None or task is None:
+                    raise PipelineError("pipeline resume state could not be restored", 500)
+                config = json.loads(pipeline.config_json or "{}")
+                task.max_runtime_seconds = int(
+                    config.get("max_runtime_seconds", task.max_runtime_seconds)
+                )
+                task.max_retries = int(config.get("max_retries", task.max_retries))
+                stage.status = TaskStatus.PENDING.value
+                pipeline.status = TaskStatus.PENDING.value
+                pipeline.current_stage = stage.stage_key
+                session.flush()
         return self.get(pipeline_id)
 
     def reopen_for_task(self, task_id: str) -> PipelineOut | None:

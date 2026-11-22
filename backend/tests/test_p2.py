@@ -706,6 +706,55 @@ def test_resume_pipeline_reconciles_completed_stage(client, ctx):
     assert current["stages"][2]["task"] is not None
 
 
+def test_resume_pipeline_restarts_without_success(client, ctx):
+    created = client.post(
+        "/api/v1/pipelines",
+        json={
+            "name": "restart pipeline",
+            "source_dataset": "coco128.yaml",
+            "model": "yolov8n.pt",
+            "epochs": 1,
+            "imgsz": 64,
+            "batch_size": 1,
+            "cpu_cores": 2,
+            "max_runtime_seconds": 60,
+            "max_retries": 0,
+            "max_images": 1,
+        },
+    )
+    assert created.status_code == 201, created.text
+    pipeline_id = created.json()["id"]
+    first_task_id = created.json()["stages"][0]["task"]["id"]
+    with ctx.db.session() as session:
+        task = session.get(Task, first_task_id)
+        pipeline = session.get(Pipeline, pipeline_id)
+        assert task is not None and pipeline is not None
+        task.status = "cancelled"
+        task.failure_reason = "cancelled_by_user"
+        task.finished_at = utcnow()
+        pipeline.status = "cancelled"
+        pipeline.finished_at = utcnow()
+        stage = session.scalar(
+            select(PipelineStage).where(
+                PipelineStage.pipeline_id == pipeline_id,
+                PipelineStage.stage_key == "preprocess",
+            )
+        )
+        assert stage is not None
+        stage.status = "cancelled"
+        stage.finished_at = utcnow()
+        session.flush()
+
+    resumed = client.post(f"/api/v1/pipelines/{pipeline_id}/resume")
+    assert resumed.status_code == 200, resumed.text
+    current = resumed.json()
+    assert current["status"] == "pending"
+    assert current["stages"][0]["task"]["id"] == first_task_id
+    assert current["stages"][0]["status"] == "pending"
+    assert current["stages"][1]["status"] == "waiting"
+    assert current["stages"][2]["status"] == "waiting"
+
+
 def test_pipeline_list_filters(client):
     for name in ("filter alpha", "filter beta"):
         response = client.post(
