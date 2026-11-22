@@ -17,6 +17,7 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { api } from '@/api/client'
+import { SHOW_TASK_SUBMIT } from '@/config/features'
 import type {
   Artifact,
   Dataset,
@@ -904,7 +905,7 @@ onBeforeUnmount(() => {
               <span class="soft-tag" :class="{ builtin: row.is_builtin }">{{ row.is_builtin ? '平台内置' : '本地上传' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="" width="140" align="right">
+          <el-table-column v-if="SHOW_TASK_SUBMIT" label="" width="140" align="right">
             <template #default="{ row }">
               <el-button text size="small" @click="useModel(row)">用于训练</el-button>
             </template>
@@ -929,7 +930,7 @@ onBeforeUnmount(() => {
               <span>{{ row.is_builtin ? '平台内置' : '本地上传' }}</span>
               <span>{{ formatDate(row.modified_at) }}</span>
             </div>
-            <div class="mobile-card-actions">
+            <div v-if="SHOW_TASK_SUBMIT" class="mobile-card-actions">
               <el-button size="small" text @click="useModel(row)">用于训练</el-button>
             </div>
           </article>

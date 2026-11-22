@@ -17,6 +17,7 @@ import { ElMessage } from 'element-plus'
 
 import { api } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge.vue'
+import { SHOW_TASK_SUBMIT } from '@/config/features'
 import type { BenchmarkRun, NodeTopologyItem } from '@/types/p2'
 import type {
   ClusterOverview,
@@ -392,7 +393,7 @@ onBeforeUnmount(() => {
           <el-icon><Refresh /></el-icon>
           <span>已同步 {{ lastSync }}</span>
         </button>
-        <el-button :icon="Plus" type="primary" @click="router.push({ name: 'task-submit' })">
+        <el-button v-if="SHOW_TASK_SUBMIT" :icon="Plus" type="primary" @click="router.push({ name: 'task-submit' })">
           提交训练任务
         </el-button>
       </div>
@@ -926,7 +927,7 @@ onBeforeUnmount(() => {
             <strong>threads {{ benchValue(benchmarkSelected, 'threads') }} · workers {{ benchValue(benchmarkSelected, 'workers') }}</strong>
             <span class="benchmark-recommend-speed">{{ benchValue(benchmarkSelected, 'images_per_second') }} images/s</span>
           </div>
-          <el-button text class="benchmark-apply" :icon="ArrowRight" @click="applyBenchmark">
+          <el-button v-if="SHOW_TASK_SUBMIT" text class="benchmark-apply" :icon="ArrowRight" @click="applyBenchmark">
             应用到提交任务
           </el-button>
         </div>

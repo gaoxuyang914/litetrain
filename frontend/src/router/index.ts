@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+import { SHOW_TASK_SUBMIT } from '@/config/features'
 import { useAuth } from '@/composables/useAuth'
 
 const router = createRouter({
@@ -34,6 +35,7 @@ const router = createRouter({
           name: 'task-submit',
           component: () => import('@/views/TaskSubmitView.vue'),
           meta: { title: '提交训练任务', eyebrow: '提交', permission: 'platform.submit' },
+          beforeEnter: () => (SHOW_TASK_SUBMIT ? true : { name: 'tasks' }),
         },
         {
           path: 'tasks/:id',

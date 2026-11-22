@@ -20,6 +20,7 @@ import {
 import { ElMessage } from 'element-plus'
 
 import { api } from '@/api/client'
+import { SHOW_TASK_SUBMIT } from '@/config/features'
 import { useAuth } from '@/composables/useAuth'
 import { useNotifications } from '@/composables/useNotifications'
 import { useTheme } from '@/composables/useTheme'
@@ -62,7 +63,7 @@ const navGroups: Array<{
       { name: 'overview', label: '集群总览', icon: DataAnalysis, path: '/overview' },
       { name: 'tasks', label: '任务列表', icon: Tickets, path: '/tasks' },
       { name: 'task-submit', label: '提交任务', icon: MagicStick, path: '/tasks/new', permission: 'platform.submit' },
-    ],
+    ].filter((item) => SHOW_TASK_SUBMIT || item.name !== 'task-submit'),
   },
   {
     label: '编排与资产',
@@ -262,7 +263,7 @@ onBeforeUnmount(() => {
           <span class="system-value accent">{{ onlineNodeCount }} 在线</span>
         </div>
         <p class="system-foot">{{ cpuLabel }} 核已分配</p>
-        <button class="system-action" type="button" @click="navigate('task-submit')">
+        <button v-if="SHOW_TASK_SUBMIT" class="system-action" type="button" @click="navigate('task-submit')">
           <el-icon><MagicStick /></el-icon>
           提交训练
         </button>

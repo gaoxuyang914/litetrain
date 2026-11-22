@@ -15,6 +15,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { api } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge.vue'
+import { SHOW_TASK_SUBMIT } from '@/config/features'
 import { useAuth } from '@/composables/useAuth'
 import { useNotifications } from '@/composables/useNotifications'
 import type { Task, TaskCompareResponse, TaskListResponse, TaskStatus } from '@/types/task'
@@ -387,7 +388,7 @@ onBeforeUnmount(() => {
         >
           对比 {{ selectedIds.length }} 个任务
         </el-button>
-        <el-button type="primary" :icon="Plus" @click="router.push({ name: 'task-submit' })">
+        <el-button v-if="SHOW_TASK_SUBMIT" type="primary" :icon="Plus" @click="router.push({ name: 'task-submit' })">
           提交任务
         </el-button>
       </div>
@@ -547,9 +548,9 @@ onBeforeUnmount(() => {
               <span class="empty-icon"><el-icon><Document /></el-icon></span>
               <strong>没有匹配的任务</strong>
               <span>
-                调整筛选条件，或提交一个内置的 YOLO CPU 训练任务开始使用。
+                调整筛选条件，或从训练流水线创建任务开始使用。
               </span>
-              <el-button type="primary" plain size="small" @click="router.push({ name: 'task-submit' })">
+              <el-button v-if="SHOW_TASK_SUBMIT" type="primary" plain size="small" @click="router.push({ name: 'task-submit' })">
                 提交第一个任务
               </el-button>
             </div>
