@@ -44,6 +44,22 @@ def get_pipeline(pipeline_id: str, ctx: AppContext = Depends(get_ctx)) -> Pipeli
         raise HTTPException(status_code=404, detail="pipeline not found") from exc
 
 
+@router.post(
+    "/{pipeline_id}/resume",
+    response_model=PipelineOut,
+    summary="Resume a failed or cancelled pipeline from its last successful stage",
+)
+def resume_pipeline(pipeline_id: str, ctx: AppContext = Depends(get_ctx)) -> PipelineOut:
+    try:
+        pipeline = ctx.pipelines.resume_pipeline(pipeline_id)
+    except PipelineNotFound as exc:
+        raise HTTPException(status_code=404, detail="pipeline not found") from exc
+    except PipelineError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    ctx.scheduler.wake()
+    return pipeline
+
+
 @router.post("/{pipeline_id}/cancel", response_model=PipelineOut, summary="Cancel a pipeline")
 def cancel_pipeline(pipeline_id: str, ctx: AppContext = Depends(get_ctx)) -> PipelineOut:
     try:

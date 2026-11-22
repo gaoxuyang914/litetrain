@@ -450,6 +450,149 @@ def test_pipeline_rejects_over_admin_runtime_limits(client, ctx):
     assert "max_retries" in too_many_retries.json()["detail"]
 
 
+def test_rerun_reopens_cancelled_pipeline(client, ctx):
+    response = client.post(
+        "/api/v1/pipelines",
+        json={
+            "name": "reopen pipeline",
+            "source_dataset": "coco128.yaml",
+            "model": "yolov8n.pt",
+            "epochs": 1,
+            "imgsz": 64,
+            "batch_size": 1,
+            "cpu_cores": 2,
+            "max_runtime_seconds": 120,
+            "max_retries": 0,
+            "max_images": 1,
+        },
+    )
+    assert response.status_code == 201, response.text
+    pipeline = response.json()
+    pipeline_id = pipeline["id"]
+    preprocess_task = pipeline["stages"][0]["task"]["id"]
+    output = ctx.settings.datasets_dir / "pipelines" / pipeline_id
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "dataset.yaml").write_text(
+        "path: .\ntrain: images/train\nval: images/train\nnames:\n  0: widget\n",
+        encoding="utf-8",
+    )
+    with ctx.db.session() as session:
+        task = session.get(Task, preprocess_task)
+        assert task is not None
+        task.status = "succeeded"
+        task.exit_code = 0
+        task.finished_at = utcnow()
+        session.flush()
+    ctx.pipelines.advance()
+    current = client.get(f"/api/v1/pipelines/{pipeline_id}").json()
+    train_task = current["stages"][1]["task"]["id"]
+
+    with ctx.db.session() as session:
+        task = session.get(Task, train_task)
+        assert task is not None
+        task.status = "cancelled"
+        task.failure_reason = "cancelled_by_user"
+        task.finished_at = utcnow()
+        session.flush()
+    ctx.pipelines.advance()
+    current = client.get(f"/api/v1/pipelines/{pipeline_id}").json()
+    assert current["status"] == "cancelled"
+
+    rerun = client.post(f"/api/v1/tasks/{train_task}/rerun")
+    assert rerun.status_code == 201, rerun.text
+    current = client.get(f"/api/v1/pipelines/{pipeline_id}").json()
+    assert current["status"] == "pending"
+    assert current["stages"][1]["status"] == "pending"
+    assert current["stages"][2]["status"] == "waiting"
+    assert current["stages"][2]["task"] is None
+
+    weights = ctx.settings.runs_dir / train_task / "weights"
+    weights.mkdir(parents=True, exist_ok=True)
+    (weights / "best.pt").write_bytes(b"fake-weights")
+    with ctx.db.session() as session:
+        task = session.get(Task, train_task)
+        assert task is not None
+        task.status = "succeeded"
+        task.exit_code = 0
+        task.finished_at = utcnow()
+        session.flush()
+    ctx.pipelines.advance()
+    current = client.get(f"/api/v1/pipelines/{pipeline_id}").json()
+    assert current["stages"][2]["task"] is not None
+
+
+def test_resume_pipeline_reconciles_completed_stage(client, ctx):
+    response = client.post(
+        "/api/v1/pipelines",
+        json={
+            "name": "resume pipeline",
+            "source_dataset": "coco128.yaml",
+            "model": "yolov8n.pt",
+            "epochs": 1,
+            "imgsz": 64,
+            "batch_size": 1,
+            "cpu_cores": 2,
+            "max_runtime_seconds": 120,
+            "max_retries": 0,
+            "max_images": 1,
+        },
+    )
+    assert response.status_code == 201, response.text
+    pipeline = response.json()
+    pipeline_id = pipeline["id"]
+    preprocess_task = pipeline["stages"][0]["task"]["id"]
+    output = ctx.settings.datasets_dir / "pipelines" / pipeline_id
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "dataset.yaml").write_text(
+        "path: .\ntrain: images/train\nval: images/train\nnames:\n  0: widget\n",
+        encoding="utf-8",
+    )
+    with ctx.db.session() as session:
+        task = session.get(Task, preprocess_task)
+        assert task is not None
+        task.status = "succeeded"
+        task.exit_code = 0
+        task.finished_at = utcnow()
+        session.flush()
+    ctx.pipelines.advance()
+    current = client.get(f"/api/v1/pipelines/{pipeline_id}").json()
+    train_task = current["stages"][1]["task"]["id"]
+
+    with ctx.db.session() as session:
+        task = session.get(Task, train_task)
+        assert task is not None
+        task.status = "cancelled"
+        task.failure_reason = "cancelled_by_user"
+        task.finished_at = utcnow()
+        session.flush()
+    ctx.pipelines.advance()
+    assert client.get(f"/api/v1/pipelines/{pipeline_id}").json()["status"] == "cancelled"
+
+    # Simulate the user rerunning the cancelled train stage and it succeeding.
+    with ctx.db.session() as session:
+        task = session.get(Task, train_task)
+        assert task is not None
+        task.status = "succeeded"
+        task.exit_code = 0
+        task.finished_at = utcnow()
+        session.flush()
+
+    resumed = client.post(f"/api/v1/pipelines/{pipeline_id}/resume")
+    assert resumed.status_code == 200, resumed.text
+    body = resumed.json()
+    assert body["status"] == "pending"
+    assert body["stages"][1]["status"] == "succeeded"
+    assert body["stages"][2]["status"] == "waiting"
+    assert body["stages"][2]["task"] is None
+
+    weights = ctx.settings.runs_dir / train_task / "weights"
+    weights.mkdir(parents=True, exist_ok=True)
+    (weights / "best.pt").write_bytes(b"fake-weights")
+    ctx.pipelines.advance()
+    current = client.get(f"/api/v1/pipelines/{pipeline_id}").json()
+    assert current["stages"][2]["task"] is not None
+
+
 def test_pipeline_failure_stops_later_stages(client, ctx):
     created = client.post(
         "/api/v1/pipelines",

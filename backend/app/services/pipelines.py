@@ -583,6 +583,102 @@ class PipelineService:
                 stage.finished_at = stage.finished_at or utcnow()
         enqueue_pipeline_event(session, pipeline, "pipeline.failed", f"{code}: {message}")
 
+    def resume_pipeline(self, pipeline_id: str) -> PipelineOut:
+        """Reconcile a terminal pipeline with completed stage tasks and resume it."""
+        with self.db.session() as session:
+            pipeline = session.get(Pipeline, pipeline_id)
+            if pipeline is None:
+                raise PipelineNotFound(pipeline_id)
+            if pipeline.status not in (TaskStatus.FAILED.value, TaskStatus.CANCELLED.value):
+                raise PipelineError("only failed or cancelled pipelines can be resumed", 409)
+            stages = session.scalars(
+                select(PipelineStage)
+                .where(PipelineStage.pipeline_id == pipeline.id)
+                .order_by(PipelineStage.sequence.asc())
+            ).all()
+            last_succeeded = -1
+            for stage in stages:
+                if stage.task_id:
+                    task = session.get(Task, stage.task_id)
+                    if task is not None:
+                        stage.status = task.status
+                        stage.started_at = stage.started_at or task.started_at
+                        stage.finished_at = task.finished_at
+                        stage.message = task.failure_reason if task.status == TaskStatus.FAILED.value else None
+                        if task.status == TaskStatus.SUCCEEDED.value:
+                            last_succeeded = max(last_succeeded, stage.sequence)
+            if last_succeeded < 0:
+                raise PipelineError("pipeline has no successful stage to resume from", 409)
+            for stage in stages:
+                if stage.sequence > last_succeeded:
+                    stage.task_id = None
+                    stage.status = "waiting"
+                    stage.started_at = None
+                    stage.finished_at = None
+                    stage.message = None
+            pipeline.status = TaskStatus.PENDING.value
+            pipeline.started_at = None
+            pipeline.finished_at = None
+            pipeline.failure_reason = None
+            enqueue_pipeline_event(
+                session,
+                pipeline,
+                "pipeline.reopened",
+                f"Pipeline resumed after stage {last_succeeded + 1}",
+            )
+            session.flush()
+            return self._to_schema(session, pipeline, include_artifacts=True)
+
+    def reopen_for_task(self, task_id: str) -> PipelineOut | None:
+        """Reopen a terminal pipeline when one of its stage tasks is rerun.
+
+        The rerun keeps the same task id. Later stages are reset to waiting so the
+        coordinator can create fresh evaluate/train tasks after this attempt.
+        """
+        with self.db.session() as session:
+            stage = session.scalar(
+                select(PipelineStage).where(PipelineStage.task_id == task_id)
+            )
+            if stage is None:
+                return None
+            pipeline = session.get(Pipeline, stage.pipeline_id)
+            if pipeline is None:
+                return None
+            if pipeline.status not in (
+                TaskStatus.SUCCEEDED.value,
+                TaskStatus.FAILED.value,
+                TaskStatus.CANCELLED.value,
+            ):
+                return None
+            stages = session.scalars(
+                select(PipelineStage)
+                .where(PipelineStage.pipeline_id == pipeline.id)
+                .order_by(PipelineStage.sequence.asc())
+            ).all()
+            pipeline.status = TaskStatus.PENDING.value
+            pipeline.started_at = None
+            pipeline.finished_at = None
+            pipeline.failure_reason = None
+            stage.status = TaskStatus.PENDING.value
+            stage.started_at = None
+            stage.finished_at = None
+            stage.message = None
+            for later in stages:
+                if later.sequence > stage.sequence:
+                    later.task_id = None
+                    later.status = "waiting"
+                    later.started_at = None
+                    later.finished_at = None
+                    later.message = None
+            enqueue_pipeline_event(
+                session,
+                pipeline,
+                "pipeline.reopened",
+                f"Pipeline reopened by rerun of {stage.stage_key} task {task_id}",
+            )
+            session.flush()
+            return self._to_schema(session, pipeline, include_artifacts=True)
+
     # -------------------------------------------------------------------- reads
     def _stage_out(self, session, stage: PipelineStage) -> PipelineStageOut:
         task_summary = None

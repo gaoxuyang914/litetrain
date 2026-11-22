@@ -300,6 +300,11 @@ export const api = {
     return data
   },
 
+  async resumePipeline(pipelineId: string): Promise<Pipeline> {
+    const { data } = await http.post<Pipeline>(`/pipelines/${pipelineId}/resume`)
+    return data
+  },
+
   async listDatasets(): Promise<Dataset[]> {
     const { data } = await http.get<{ items: Dataset[]; total: number }>('/datasets')
     return data.items

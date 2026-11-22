@@ -159,6 +159,7 @@ def get_task_attempts(task_id: str, ctx: AppContext = Depends(get_ctx)) -> TaskA
 def rerun_task(task_id: str, ctx: AppContext = Depends(get_ctx)) -> TaskOut:
     try:
         task = ctx.tasks.rerun(task_id)
+        ctx.pipelines.reopen_for_task(task_id)
         ctx.scheduler.wake()
         return task
     except TaskNotFoundError as exc:

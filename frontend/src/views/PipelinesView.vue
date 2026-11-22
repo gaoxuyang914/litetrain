@@ -34,6 +34,7 @@ const error = ref<string | null>(null)
 const createOpen = ref(false)
 const creating = ref(false)
 const cancellingId = ref<string | null>(null)
+const resumingId = ref<string | null>(null)
 const detailOpen = ref(false)
 const detailLoading = ref(false)
 const detail = ref<Pipeline | null>(null)
@@ -227,6 +228,31 @@ async function openDetail(pipeline: Pipeline) {
   }
 }
 
+function canResumePipeline(pipeline: Pipeline): boolean {
+  return (
+    ['failed', 'cancelled'].includes(pipeline.status) &&
+    pipeline.stages.some(
+      (stage) => stage.status === 'succeeded' || stage.task?.status === 'succeeded',
+    )
+  )
+}
+
+async function resumePipeline(pipeline: Pipeline) {
+  resumingId.value = pipeline.id
+  try {
+    await api.resumePipeline(pipeline.id)
+    ElMessage.success('流水线已从最近成功阶段继续')
+    await load(true)
+    if (detail.value?.id === pipeline.id) {
+      detail.value = await api.getPipeline(pipeline.id)
+    }
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '继续流水线失败')
+  } finally {
+    resumingId.value = null
+  }
+}
+
 async function cancelPipeline(pipeline: Pipeline) {
   try {
     await ElMessageBox.confirm(
@@ -410,6 +436,17 @@ onBeforeUnmount(() => {
             <button class="row-action" type="button" title="查看阶段详情" @click="openDetail(pipeline)">
               <el-icon><Share /></el-icon>
             </button>
+            <el-button
+              v-if="canResumePipeline(pipeline)"
+              size="small"
+              text
+              type="primary"
+              :loading="resumingId === pipeline.id"
+              :icon="Refresh"
+              @click="resumePipeline(pipeline)"
+            >
+              继续流水线
+            </el-button>
             <el-button
               v-if="!isTerminal(pipeline.status)"
               size="small"
