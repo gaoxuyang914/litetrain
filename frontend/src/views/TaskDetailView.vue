@@ -2488,6 +2488,10 @@ onBeforeUnmount(() => stopPolling())
   letter-spacing: 0.02em;
 }
 
+.attempt-header span:last-child {
+  text-align: center;
+}
+
 .attempt-header + .attempt-row {
   border-top: 0;
 }
@@ -2532,7 +2536,7 @@ onBeforeUnmount(() => stopPolling())
   overflow: hidden;
   color: var(--text-secondary);
   font-size: 11px;
-  text-align: right;
+  text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
