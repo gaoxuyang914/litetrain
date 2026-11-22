@@ -885,7 +885,7 @@ cd backend
 ..\.venv\Scripts\python -m pytest
 ```
 
-结果：**51 passed**。测试覆盖 P0/P1 + P2：
+结果：**52 passed**。测试覆盖 P0/P1 + P2：
 
 - 创建、分页、状态筛选、ID/名称搜索；
 - 表单选项和命令预览；

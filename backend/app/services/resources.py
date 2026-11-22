@@ -195,6 +195,10 @@ class ResourceService:
     def apply_topology(self, topology: list[tuple[str, int]]) -> list[Node]:
         if not topology:
             raise ResourceError("at least one node is required", 422)
+        names = [name.strip() for name, _ in topology]
+        normalized = [name.lower() for name in names]
+        if len(set(normalized)) != len(normalized):
+            raise ResourceError("node names must be unique", 422)
         total = sum(cpus for _, cpus in topology)
         max_cpus = self.settings.total_cpus
         if total > max_cpus:

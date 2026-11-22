@@ -180,6 +180,20 @@ def test_webhook_enqueue_sign_and_deliver(client, ctx, monkeypatch, payload):
     assert client.get("/api/v1/webhooks").json()["total"] == 0
 
 
+def test_topology_rejects_duplicate_node_names(client):
+    response = client.post(
+        "/api/v1/cluster/nodes/topology",
+        json={
+            "nodes": [
+                {"name": "sim-a", "total_cpus": 4},
+                {"name": "SIM-A", "total_cpus": 4},
+            ]
+        },
+    )
+    assert response.status_code == 422
+    assert "unique" in response.json()["detail"]
+
+
 def test_two_node_topology_and_balanced_allocation(client, ctx, payload):
     applied = client.post(
         "/api/v1/cluster/nodes/topology",

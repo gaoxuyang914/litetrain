@@ -162,11 +162,35 @@ const cpuBudget = computed(() => overview.value?.cpu.budget ?? 8)
 const topologyTotal = computed(() =>
   topologyDraft.value.reduce((sum, node) => sum + Number(node.total_cpus || 0), 0),
 )
+const duplicateTopologyNames = computed(() => {
+  const counts = new Map<string, number>()
+  for (const node of topologyDraft.value) {
+    const name = node.name.trim().toLowerCase()
+    if (name) counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+  return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([name]) => name))
+})
+
+function uniqueNodeName(base: string, used: Set<string>): string {
+  const clean = base.trim() || 'sim-node'
+  let candidate = clean
+  let suffix = 2
+  while (used.has(candidate.toLowerCase())) {
+    candidate = `${clean}-${suffix}`
+    suffix += 1
+  }
+  used.add(candidate.toLowerCase())
+  return candidate
+}
 
 function openTopologyDialog() {
-  const existing = onlineNodes.value
+  const existing = overview.value?.nodes ?? []
   if (existing.length) {
-    topologyDraft.value = existing.map((node) => ({ name: node.name, total_cpus: node.total_cpus }))
+    const used = new Set<string>()
+    topologyDraft.value = existing.map((node) => ({
+      name: uniqueNodeName(node.name, used),
+      total_cpus: node.total_cpus,
+    }))
   } else {
     const half = Math.max(1, Math.floor(cpuBudget.value / 2))
     topologyDraft.value = [
@@ -259,8 +283,9 @@ function benchValue(row: Record<string, unknown>, key: string): string {
 }
 
 function addTopologyRow() {
+  const used = new Set(topologyDraft.value.map((node) => node.name.trim().toLowerCase()))
   topologyDraft.value.push({
-    name: `sim-node-${topologyDraft.value.length + 1}`,
+    name: uniqueNodeName('sim-node', used),
     total_cpus: 1,
   })
 }
@@ -278,6 +303,10 @@ async function applyTopology() {
   }
   if (topologyDraft.value.some((node) => !node.name.trim() || node.total_cpus < 1)) {
     ElMessage.warning('每个节点都需要名称和至少 1 个 CPU 核')
+    return
+  }
+  if (duplicateTopologyNames.value.size) {
+    ElMessage.warning('节点名称不能重复')
     return
   }
   topologyBusy.value = true
@@ -797,7 +826,13 @@ onBeforeUnmount(() => {
             <span></span>
           </div>
           <div v-for="(node, index) in topologyDraft" :key="index" class="topology-row">
-            <el-input v-model="node.name" placeholder="节点名称" maxlength="60" aria-label="节点名称" />
+            <el-input
+              v-model="node.name"
+              placeholder="节点名称"
+              maxlength="60"
+              aria-label="节点名称"
+              :class="{ 'topology-name-invalid': duplicateTopologyNames.has(node.name.trim().toLowerCase()) }"
+            />
             <div class="topology-cpu-field">
               <el-input-number
                 v-model="node.total_cpus"
@@ -814,16 +849,24 @@ onBeforeUnmount(() => {
             </el-button>
           </div>
         </div>
+        <p v-if="duplicateTopologyNames.size" class="topology-error">
+          节点名称不能重复，请修改后再应用。
+        </p>
         <el-button text :icon="Plus" @click="addTopologyRow">添加节点</el-button>
         <div class="topology-summary">
-          <span>模拟总容量</span>
+          <span>模拟总容量 · {{ topologyDraft.length }} 个节点</span>
           <strong class="mono" :class="{ overloaded: topologyTotal > cpuBudget }">
             {{ topologyTotal }} / {{ cpuBudget }} 核
           </strong>
         </div>
         <template #footer>
           <el-button @click="topologyOpen = false">取消</el-button>
-          <el-button type="primary" :loading="topologyBusy" @click="applyTopology">
+          <el-button
+            type="primary"
+            :loading="topologyBusy"
+            :disabled="duplicateTopologyNames.size > 0"
+            @click="applyTopology"
+          >
             应用拓扑
           </el-button>
         </template>
@@ -1497,6 +1540,16 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1;
   white-space: nowrap;
+}
+
+.topology-name-invalid :deep(.el-input__wrapper) {
+  box-shadow: 0 0 0 1px var(--red) inset;
+}
+
+.topology-error {
+  margin: 2px 0 6px;
+  color: var(--red);
+  font-size: 11px;
 }
 
 .topology-summary {
