@@ -427,20 +427,6 @@ onBeforeUnmount(() => {
     </section>
 
     <section class="panel table-panel">
-      <div class="table-meta">
-        <div>
-          <p>
-            <strong>{{ response?.total ?? 0 }}</strong> 个任务
-            <span v-if="appliedSearch" class="filter-note">
-              · 关键词 “{{ appliedSearch }}”
-            </span>
-            <span v-if="statusFilter !== 'all'" class="filter-note">
-              · {{ statusMeta[statusFilter].label }}
-            </span>
-          </p>
-        </div>
-      </div>
-
       <el-skeleton v-if="loading" :rows="7" animated class="table-skeleton" />
 
       <template v-else>
