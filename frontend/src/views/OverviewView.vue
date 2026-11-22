@@ -202,8 +202,22 @@ function pollBenchmark() {
   }, 1800)
 }
 
-async function startBenchmark() {
-  const threads = benchmarkForm.value.threads
+function applyBenchmark() {
+  const selected = benchmarkSelected.value
+  if (!selected) {
+    ElMessage.warning('还没有可用的压测推荐')
+    return
+  }
+  const query: Record<string, string> = {}
+  for (const key of ['threads', 'workers', 'imgsz', 'batch'] as const) {
+    const value = selected[key]
+    if (value != null && value !== '') query[key === 'batch' ? 'batch_size' : key === 'threads' ? 'compute_threads' : key] = String(value)
+  }
+  benchmarkOpen.value = false
+  router.push({ name: 'task-submit', query })
+}
+
+async function startBenchmark() {  const threads = benchmarkForm.value.threads
     .split(',')
     .map((value) => Number(value.trim()))
     .filter((value) => Number.isFinite(value) && value > 0)
@@ -344,7 +358,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="page-actions">
-        <el-button :icon="Cpu" @click="openBenchmark">CPU 自动调优</el-button>
+        <el-button :icon="Cpu" @click="openBenchmark">CPU 参数压测</el-button>
         <button class="sync-chip" type="button" :class="{ spinning: refreshing }" @click="load(true)">
           <el-icon><Refresh /></el-icon>
           <span>已同步 {{ lastSync }}</span>
@@ -798,9 +812,9 @@ onBeforeUnmount(() => {
         </template>
       </el-dialog>
 
-      <el-dialog v-model="benchmarkOpen" title="CPU 自动调优" width="760px">
+      <el-dialog v-model="benchmarkOpen" title="CPU 参数压测" width="760px">
         <p class="benchmark-intro">
-          Benchmark 用 1 个 epoch 测量吞吐、峰值内存和耗时，不会占用训练队列。训练进行中时不可启动。
+          用 1 个 epoch 对比不同「计算线程 / 数据线程」组合的吞吐、峰值内存和耗时；压测结果只做推荐，不会自动修改训练配置。
         </p>
         <div class="benchmark-form">
           <label class="benchmark-field">
@@ -838,7 +852,7 @@ onBeforeUnmount(() => {
               aria-label="批大小"
             />
           </label>
-          <el-button type="primary" :loading="benchmarkBusy" @click="startBenchmark">开始测试</el-button>
+          <el-button type="primary" :loading="benchmarkBusy" @click="startBenchmark">开始压测</el-button>
         </div>
 
         <div v-if="benchmark" class="benchmark-status">
@@ -847,9 +861,12 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-if="benchmarkSelected" class="benchmark-selected">
-          推荐：threads {{ benchValue(benchmarkSelected, 'threads') }} / workers
-          {{ benchValue(benchmarkSelected, 'workers') }} /
-          {{ benchValue(benchmarkSelected, 'images_per_second') }} images/s
+          <div>
+            推荐：threads {{ benchValue(benchmarkSelected, 'threads') }} / workers
+            {{ benchValue(benchmarkSelected, 'workers') }} /
+            {{ benchValue(benchmarkSelected, 'images_per_second') }} images/s
+          </div>
+          <el-button size="small" type="primary" plain @click="applyBenchmark">应用到提交任务</el-button>
         </div>
 
         <el-table v-if="benchmarkResults.length" :data="benchmarkResults" class="benchmark-table">
@@ -877,7 +894,7 @@ onBeforeUnmount(() => {
           </el-table-column>
         </el-table>
         <p class="benchmark-intro">
-          推荐值需在提交任务页手动应用；Benchmark 不会自动修改运行中的任务。
+          压测不占用训练队列，但会实际占用本机 CPU；训练进行中不可启动。推荐值可一键带入提交页，仍由你确认后提交。
         </p>
       </el-dialog>
 
@@ -3553,6 +3570,11 @@ html.dark .accent-card {
 }
 
 .benchmark-selected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   margin-top: 10px;
   padding: 10px 12px;
   border: 1px solid var(--accent-line);

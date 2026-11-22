@@ -228,6 +228,35 @@ async function loadOptions() {
       ),
       workers: data.defaults.workers,
     })
+    let appliedBenchmark = false
+    const queryThreads = Number(route.query.compute_threads)
+    if (Number.isInteger(queryThreads) && queryThreads > 0) {
+      const threads = Math.min(queryThreads, maxCpu.value)
+      if (threads !== queryThreads) {
+        ElMessage.warning(`压测推荐 ${queryThreads} 线程，超过当前可用 CPU，已限制为 ${threads}`)
+      }
+      form.cpu_cores = Math.max(form.cpu_cores, threads)
+      form.compute_threads = threads
+      appliedBenchmark = true
+    }
+    const queryWorkers = Number(route.query.workers)
+    if (Number.isInteger(queryWorkers) && queryWorkers >= 0 && queryWorkers <= 8) {
+      form.workers = queryWorkers
+      appliedBenchmark = true
+    }
+    const queryImgsz = Number(route.query.imgsz)
+    if (imageSizes.includes(queryImgsz)) {
+      form.imgsz = queryImgsz
+      appliedBenchmark = true
+    }
+    const queryBatch = Number(route.query.batch_size)
+    if (Number.isInteger(queryBatch) && queryBatch >= 1 && queryBatch <= 64) {
+      form.batch_size = queryBatch
+      appliedBenchmark = true
+    }
+    if (appliedBenchmark) {
+      ElMessage.info('已应用 CPU 压测推荐，请确认配置后提交')
+    }
     const selected = datasetRecord.value
     form.dataset_id = selected?.id ?? null
     await nextTick()

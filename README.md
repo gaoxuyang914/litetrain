@@ -95,7 +95,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | --- | --- |
 | 数据集质量体检 | 标签结构、坐标/类别、图片解码、缺失/孤儿标签、完全重复、train/val 泄漏、类别分布、小目标；严重问题阻断训练 |
 | 训练准入 | `quality_status` + 警告确认；任务创建和流水线创建都会校验数据集 |
-| CPU Benchmark | 短周期实测 threads / workers，记录 images/s、耗时、峰值 RSS；结果持久化并返回推荐 profile |
+| CPU 参数压测 | 短周期实测 threads / workers，记录 images/s、耗时、峰值 RSS；结果持久化并返回推荐 profile，可一键带入提交页 |
 | Checkpoint / Resume | 每轮保存 checkpoint、任务详情可查看；失败/取消后可人工从最近 checkpoint 创建新任务 |
 | Run Manifest | 每次新任务记录数据哈希、模型哈希、配置、seed、Python/PyTorch/Ultralytics、Git 与主机信息 |
 | 实验对比 | 任务列表选择 2–4 个任务，对比配置、数据集、mAP、耗时和峰值内存 |
@@ -712,8 +712,8 @@ Base：`http://127.0.0.1:8000/api/v1`；完整 OpenAPI 在 `/docs`。
 | `PATCH` | `/cluster/nodes/{id}` | `online / offline`；带 active allocation 的节点不能下线 |
 | `GET` | `/cluster/health` | 健康检查 |
 | `GET` | `/cluster/task-distribution?window=1h` | 状态分布，支持 5m–180d / all |
-| `POST` | `/cluster/benchmarks` | 启动 CPU Benchmark |
-| `GET` | `/cluster/benchmarks/latest` | 最近一次 Benchmark 与推荐 profile |
+| `POST` | `/cluster/benchmarks` | 启动 CPU 参数压测 |
+| `GET` | `/cluster/benchmarks/latest` | 最近一次压测与推荐 profile |
 | `GET` | `/version` | 版本、执行器、scheduler 后端信息 |
 
 ### 流水线
