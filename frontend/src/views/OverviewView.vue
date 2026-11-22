@@ -443,6 +443,13 @@ onBeforeUnmount(() => {
               :style="{ flexGrow: Math.max(0.14, row.value), background: row.color }"
             ></span>
           </div>
+          <div class="queue-legend">
+            <span v-for="row in statusRows" :key="row.key">
+              <i :style="{ background: row.color }"></i>
+              {{ row.label }}
+              <strong class="mono">{{ row.value }}</strong>
+            </span>
+          </div>
           <div class="metric-foot">
             <span>累计 {{ overview.tasks.total }} 个任务</span>
             <span>{{ overview.tasks.succeeded }} 个成功</span>
@@ -4262,6 +4269,95 @@ html.dark .accent-card {
 
   .distribution-range-block {
     align-items: flex-start;
+  }
+}
+
+/* Summary deck: two machine cards on top, queue as a full-width workflow row. */
+.queue-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 14px;
+  margin-top: 11px;
+}
+
+.queue-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.queue-legend i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+.queue-legend strong {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+@media (min-width: 761px) {
+  .overview-page .metric-deck {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+
+  .overview-page .metric-cpu {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .overview-page .metric-host {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .overview-page .metric-queue {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: grid;
+    grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.28fr);
+    grid-template-rows: auto auto auto auto;
+    align-items: center;
+    column-gap: 28px;
+    min-height: 0;
+  }
+
+  .metric-queue .metric-kicker {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .metric-queue .queue-main {
+    grid-column: 1;
+    grid-row: 2 / span 2;
+    margin-top: 10px;
+    align-self: center;
+  }
+
+  .metric-queue .queue-strip {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: end;
+    margin-top: 8px;
+    height: 8px;
+  }
+
+  .metric-queue .queue-legend {
+    grid-column: 2;
+    grid-row: 3;
+    margin-top: 9px;
+  }
+
+  .metric-queue .metric-foot {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    margin-top: 13px;
   }
 }
 </style>
