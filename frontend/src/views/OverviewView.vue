@@ -4456,5 +4456,36 @@ html.dark .accent-card {
   margin-top: auto;
   padding-top: 12px;
 }
+
+.overview-page .metric-cpu,
+.overview-page .metric-host {
+  display: flex;
+  flex-direction: column;
+}
+
+.overview-page .metric-cpu .metric-cpu-main {
+  flex: 1;
+  align-items: center;
+}
+
+.overview-page .metric-host .host-main {
+  flex: 1;
+  align-items: center;
+}
+
+.overview-page .metric-host .host-bars {
+  flex: 0 0 auto;
+  height: 32px;
+  min-height: 0;
+  margin-top: 10px;
+  margin-left: 0;
+  align-items: flex-end;
+}
+
+.overview-page .metric-cpu .metric-foot,
+.overview-page .metric-host .metric-foot {
+  margin-top: auto;
+  padding-top: 12px;
+}
 </style>
 
