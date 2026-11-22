@@ -621,6 +621,23 @@ html.dark .panel {
   line-height: 1.7;
 }
 
+.empty-state > span:not(.empty-icon),
+.empty-state .empty-message {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.empty-pipeline .empty-state {
+  min-height: 230px;
+  gap: 10px;
+  padding: 30px 24px;
+}
+
+.empty-pipeline .empty-state .el-button {
+  margin-top: 3px;
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.16s var(--ease-out);
@@ -692,6 +709,27 @@ html.dark .panel {
   border: 1px solid #111111;
   background: #111111;
   box-shadow: none;
+}
+
+.el-button--primary.is-plain {
+  --el-button-text-color: var(--accent);
+  --el-button-bg-color: var(--panel);
+  --el-button-border-color: var(--accent-line);
+  --el-button-hover-text-color: var(--accent);
+  --el-button-hover-bg-color: var(--accent-soft);
+  --el-button-hover-border-color: var(--accent);
+  --el-button-active-text-color: var(--accent);
+  --el-button-active-bg-color: var(--accent-soft);
+  --el-button-active-border-color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--panel);
+  color: var(--accent);
+}
+
+.el-button--primary.is-plain:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .el-button--primary:hover {

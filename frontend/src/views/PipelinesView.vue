@@ -446,8 +446,8 @@ onBeforeUnmount(() => {
       <div class="empty-state">
         <span class="empty-icon"><el-icon><Share /></el-icon></span>
         <strong>{{ hasFilters ? '没有匹配的流水线' : '还没有流水线' }}</strong>
-        <span v-if="hasFilters">换个状态或关键词试试，也可以清除筛选。</span>
-        <span v-else>用一个串行流水线验证预处理、训练和评估的自动衔接，以及阶段产物的下载。</span>
+        <span v-if="hasFilters" class="empty-message">换个状态或关键词试试，也可以清除筛选。</span>
+        <span v-else class="empty-message">用一个串行流水线验证预处理、训练和评估的自动衔接，以及阶段产物的下载。</span>
         <el-button v-if="hasFilters" type="primary" plain size="small" @click="clearPipelineFilters">
           清除筛选
         </el-button>
