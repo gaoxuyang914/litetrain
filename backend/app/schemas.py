@@ -114,6 +114,9 @@ class TaskOut(BaseModel):
     resume_mode: str | None = None
     checkpoint_epoch: int | None = None
     stop_reason: str | None = None
+    preempted_by_task_id: str | None = None
+    preempted_at: OptionalUtcDateTime = None
+    preempt_count: int = 0
     max_runtime_seconds: int
     max_retries: int
     retry_count: int

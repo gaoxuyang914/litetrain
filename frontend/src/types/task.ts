@@ -51,6 +51,9 @@ export interface Task {
   resume_mode: string | null
   checkpoint_epoch: number | null
   stop_reason: string | null
+  preempted_by_task_id?: string | null
+  preempted_at?: string | null
+  preempt_count?: number
   max_runtime_seconds: number
   max_retries: number
   retry_count: number

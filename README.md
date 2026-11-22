@@ -20,7 +20,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | 完整 Git 仓库 | [github.com/gaoxuyang914/litetrain](https://github.com/gaoxuyang914/litetrain)，`main` 分支，提交历史与版本标签见仓库 |
 | README | 本文件：环境依赖、快速开始、架构图、HTTP 接口、测试与验收、已知边界 |
 | 可运行演示 | `scripts/setup.ps1` → `scripts/start_ray.ps1` → `scripts/start_backend.ps1` → `scripts/start_frontend.ps1`；黑盒验收脚本 `scripts/e2e_live.py` |
-| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，20 张真实运行截图 |
+| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，21 张真实运行截图 |
 | CI | [.github/workflows/ci.yml](.github/workflows/ci.yml)，GitHub Actions 后端测试 + 前端 typecheck/build |
 
 ---
@@ -65,7 +65,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 | 能力 | 实现 |
 | --- | --- |
-| 优先级调度 | `priority 0–100`，高优先级先调度；未实现抢占（题目中可选） |
+| 优先级调度与抢占 | `priority 0–100`，高优先级先调度；资源不足时可抢占低优先级任务：仅限有 checkpoint 的独立任务，原任务记为 `cancelled / preempted`，自动创建 resume 子任务；无 checkpoint、流水线任务或已抢占两次的任务不抢占 |
 | YOLO 指标 | Ultralytics `on_fit_epoch_end` 回调采集 loss / mAP / precision / recall / lr；存 SQLite；前端 ECharts 折线图 |
 | 失败自动重试 | `max_retries` 0–5；worker 异常、非 0 退出、启动失败可自动重试；超时/心跳超时/手动取消不重试 |
 | 单用户 CPU 配额 | `LITETRAIN_USER_CPU_QUOTA`；同时检查节点空闲量和用户已用量；左下角「运行设置」可动态调整 |
@@ -153,7 +153,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 ![Webhook](docs/screenshots/webhooks.png)
 
-更多截图：任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
+更多截图：任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
 
 > 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.5 Ultralytics-style workspace**：白色侧栏与任务搜索、蓝色品牌、细边框浅色卡片、黑色主按钮、浅色集群拓扑、数据质量准入和运行清单；字号、对比度、焦点和 reduced-motion 均按 `deepseek-frontend-design` 技能自检。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
 
@@ -459,6 +459,37 @@ stateDiagram-v2
   - 保留原日志，追加 attempt 分隔线和 `retrying` 信息；
   - 下一次调度重新分配 CPU。
 - 超时、心跳超时和手动取消不重试，避免死循环。
+
+### 优先级抢占
+
+优先级调度和抢占是两层能力：
+
+- **排队阶段**：所有 pending 任务按 `priority DESC, submitted_at ASC` 排序。
+- **运行阶段**：高优先级任务无法获得资源时，调度器可以抢占同一节点上优先级至少低 20 分的 running 任务。
+- 只抢占满足以下条件的任务：
+  - 不是流水线阶段任务；
+  - 当前 attempt 有可读取的 checkpoint 文件；
+  - `preempt_count < 2`。
+- 抢占不会新增第六种状态，也不会把任务伪装成“暂停”：
+  1. 终止低优先级 worker；
+  2. 释放原 allocation；
+  3. 原任务标为 `cancelled`，`failure_reason=preempted`，记录 `preempted_by_task_id`；
+  4. 原任务日志追加 `[platform] PREEMPTED by task ...`，事件写入 `preempted`；
+  5. 用已有 `TaskService.resume` 从最近 checkpoint 创建新的 pending 子任务，子任务保留低优先级和 `resume_from_task_id`；
+  6. 高优先级任务在下一个 scheduler tick 获得释放出来的 CPU。
+- **不抢占没有 checkpoint 的任务**：当前 checkpoint 是 epoch 级别，抢占会丢失当前 epoch；等待比静默丢进度更安全。
+- 抢占不改变原任务的日志文件；子任务使用自己的新日志，并追加 `preempted resume` 标记。
+
+实测：
+
+```text
+低优先级 A 4 CPU running，checkpoint epoch 1
+低优先级 B 4 CPU running，checkpoint epoch 1
+高优先级任务 4 CPU pending
+→ A cancelled / preempted，allocation 释放
+→ resume 子任务 pending，priority 10，resume_from_task_id=A
+→ 高优先级任务 running
+```
 
 ### 重启恢复
 
@@ -766,7 +797,7 @@ cd backend
 ..\.venv\Scripts\python -m pytest
 ```
 
-结果：**38 passed**。测试覆盖 P0/P1 + P2：
+结果：**40 passed**。测试覆盖 P0/P1 + P2：
 
 - 创建、分页、状态筛选、ID/名称搜索；
 - 表单选项和命令预览；
@@ -847,11 +878,13 @@ LATER          status=succeeded runtime=91s
 
 ## 已知边界
 
+- **抢占是 checkpoint 级恢复，不是进程挂起**：当前只在最近完整 checkpoint 上恢复，当前 epoch 会丢失；无 checkpoint 不抢占。
+- **抢占只针对独立任务**：流水线阶段任务不参与抢占，避免破坏三阶段串行状态。
 - **多节点是控制面模拟**：节点是逻辑资源池，任务仍由本机 Ray head 执行；不是真正的跨物理机 Ray worker 集群。
 - **SQLite**：适合单机演示，不适合多 API 实例共享；真实多实例需迁移 Postgres 并加行级锁。
 - **流水线固定三阶段**：题目指定 preprocess → train → evaluate；没有通用 DAG 编辑器、分支或并行阶段。
 - **无鉴权/多租户**：题目是单用户演示；生产需要 OIDC/JWT、任务级权限和审计。
-- **无抢占**：优先级只影响尚未启动的任务；P1 的可选低优先级抢占未实现。
+- **抢占粒度**：只在 checkpoint 边界恢复；无 checkpoint 不抢占，当前 epoch 的进度会回退到最近 checkpoint。抢占只针对独立任务，不处理流水线阶段。
 - **数据集删除是软删除**：记录和原始归档保留；不做对象存储生命周期管理。
 - **Webhook 未做生产级 SSRF 防护**：只校验 http(s)；生产应增加内网/回环地址拦截、secret 加密和 dead-letter 重放。
 - **本地子进程模式**：没有 Ray 的进程隔离和逻辑资源预留；平台仍按账本限制。

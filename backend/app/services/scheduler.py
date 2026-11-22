@@ -15,8 +15,10 @@ from app.config import Settings
 from app.database import Database, utcnow
 from app.models import (
     AllocationState,
+    PipelineStage,
     ResourceAllocation,
     Task,
+    TaskCheckpoint,
     TaskMetric,
     TaskStatus,
 )
@@ -31,6 +33,9 @@ if TYPE_CHECKING:
     from app.services.pipelines import PipelineService
 
 logger = logging.getLogger(__name__)
+
+PREEMPT_PRIORITY_GAP = 20
+MAX_PREEMPTIONS = 2
 
 
 def _short_reason(reason: str | None, limit: int = 600) -> str:
@@ -263,6 +268,169 @@ class Scheduler:
             # detached actor may still be starting the worker.
 
     # --------------------------------------------------------------- dispatch
+    def _checkpoint_epoch(self, task_id: str) -> int | None:
+        with self.db.session() as session:
+            row = session.scalar(
+                select(TaskCheckpoint)
+                .where(TaskCheckpoint.task_id == task_id)
+                .order_by(TaskCheckpoint.epoch.desc())
+            )
+        if row is None:
+            return None
+        path = Path(row.path)
+        if not path.is_absolute():
+            path = self.settings.data_dir / path
+        return row.epoch if path.is_file() and path.stat().st_size > 0 else None
+
+    def _preempt_for(self, high: Task) -> bool:
+        """Preempt a lower-priority run that has a recoverable checkpoint.
+
+        We deliberately do not introduce a sixth task status.  The original
+        attempt is finalised as ``cancelled/preempted`` and a new pending
+        resume task is created from its latest checkpoint.  This keeps the
+        original log immutable, preserves lineage, and reuses the tested
+        resume path.
+        """
+        if high.priority < PREEMPT_PRIORITY_GAP:
+            return False
+        with self.db.session() as session:
+            live_high = session.get(Task, high.id)
+            if live_high is None or live_high.status != TaskStatus.PENDING.value:
+                return False
+            allocations = session.scalars(
+                select(ResourceAllocation).where(
+                    ResourceAllocation.state == AllocationState.ACTIVE.value
+                )
+            ).all()
+            pipeline_task_ids = set(
+                session.scalars(
+                    select(PipelineStage.task_id).where(PipelineStage.task_id.is_not(None))
+                ).all()
+            )
+            candidates_by_node: dict[str, list[Task]] = {}
+            for allocation in allocations:
+                low = session.get(Task, allocation.task_id)
+                if low is None or low.status != TaskStatus.RUNNING.value:
+                    continue
+                if low.id in pipeline_task_ids:
+                    continue
+                if low.priority > high.priority - PREEMPT_PRIORITY_GAP:
+                    continue
+                if low.preempt_count >= MAX_PREEMPTIONS:
+                    continue
+                if self._checkpoint_epoch(low.id) is None:
+                    continue
+                candidates_by_node.setdefault(allocation.node_id, []).append(low)
+
+            selected: list[Task] = []
+            for tasks in candidates_by_node.values():
+                tasks.sort(key=lambda item: (item.priority, item.started_at or item.queued_at))
+                freed = 0
+                for low in tasks:
+                    selected.append(low)
+                    freed += low.cpu_cores
+                    if freed >= high.cpu_cores:
+                        break
+                if freed >= high.cpu_cores:
+                    break
+                selected.clear()
+
+        if not selected:
+            return False
+        preempted = False
+        for low in selected:
+            preempted = self._preempt_task(low, high) or preempted
+        return preempted
+
+    def _preempt_task(self, low: Task, high: Task) -> bool:
+        with self.db.session() as session:
+            live_low = session.get(Task, low.id)
+            live_high = session.get(Task, high.id)
+            if (
+                live_low is None
+                or live_high is None
+                or live_low.status != TaskStatus.RUNNING.value
+                or live_high.status != TaskStatus.PENDING.value
+            ):
+                return False
+            checkpoint_epoch = self._checkpoint_epoch(live_low.id)
+            if checkpoint_epoch is None:
+                return False
+            try:
+                self.execution.stop(live_low, reason="preempted")
+            except Exception:
+                logger.exception("failed to stop task %s for preemption", live_low.id)
+            now = utcnow()
+            self.resources.release_allocation(session, live_low.id)
+            live_low.status = TaskStatus.CANCELLED.value
+            live_low.failure_reason = "preempted"
+            live_low.stop_reason = "preempted"
+            live_low.preempted_by_task_id = live_high.id
+            live_low.preempted_at = now
+            live_low.cancel_requested_at = now
+            live_low.finished_at = now
+            live_low.exit_code = None
+            add_event(
+                session,
+                live_low.id,
+                "preempted",
+                f"Preempted by higher-priority task {live_high.id}; "
+                f"resuming from checkpoint epoch {checkpoint_epoch}",
+                level="warning",
+            )
+            self.log_store.append(
+                live_low.id,
+                f"[platform] PREEMPTED by task {live_high.id} "
+                f"(priority {live_high.priority}); latest checkpoint epoch {checkpoint_epoch}; "
+                "creating a resume task",
+            )
+            session.flush()
+            low_id = live_low.id
+            high_id = live_high.id
+            low_priority = live_low.priority
+            low_preempt_count = live_low.preempt_count
+        try:
+            self.execution.cleanup(live_low)
+        except Exception:
+            logger.exception("cleanup after preemption failed for %s", low_id)
+
+        try:
+            child = self.tasks.resume(low_id, mode="full")
+            with self.db.session() as session:
+                child_model = session.get(Task, child.id)
+                if child_model is not None:
+                    child_model.priority = low_priority
+                    child_model.preempt_count = low_preempt_count + 1
+                    child_model.notes = f"auto-resume after preemption by {high_id}"
+                    add_event(
+                        session,
+                        child.id,
+                        "preempted_resume",
+                        f"Created after preempting {low_id} for task {high_id}",
+                        level="info",
+                    )
+                    session.flush()
+            self.log_store.append(
+                child.id,
+                f"[platform] preempted resume of {low_id} (checkpoint epoch {checkpoint_epoch})",
+            )
+            self.broker.publish("task.preempted", low_id, {"by": high_id, "resume": child.id})
+        except Exception:
+            logger.exception("failed to create resume task after preempting %s", low_id)
+            with self.db.session() as session:
+                failed = session.get(Task, low_id)
+                if failed is not None:
+                    add_event(
+                        session,
+                        low_id,
+                        "preempt_resume_failed",
+                        "Preempted, but the resume task could not be created; see server logs",
+                        level="error",
+                    )
+                    session.flush()
+            return False
+        return True
+
     def _schedule_pending(self) -> None:
         with self.db.session() as session:
             pending = session.scalars(
@@ -272,6 +440,7 @@ class Scheduler:
             ).all()
             candidate_ids = [task.id for task in pending]
 
+        blocked_high_id: str | None = None
         for task_id in candidate_ids:
             if self._stop_event.is_set():
                 return
@@ -281,7 +450,8 @@ class Scheduler:
                     continue
                 node = self.resources.choose_node(session, task.owner, task.cpu_cores)
                 if node is None:
-                    continue
+                    blocked_high_id = task_id
+                    break
                 node_id = node.id
                 node_name = node.name
                 # Atomic claim inside this SQLite write transaction.
@@ -343,6 +513,10 @@ class Scheduler:
                 claimed_task.id,
                 {"executor": launch.executor, "pid": launch.pid},
             )
+
+        if blocked_high_id is not None:
+            high = self.tasks.get_model(blocked_high_id)
+            self._preempt_for(high)
 
     def _fail_launch(self, task_id: str, exc: Exception) -> None:
         with self.db.session() as session:

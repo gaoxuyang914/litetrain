@@ -81,6 +81,9 @@ class Task(Base):
     resume_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     checkpoint_epoch: Mapped[int | None] = mapped_column(Integer, nullable=True)
     stop_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    preempted_by_task_id: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    preempted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    preempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Lifecycle timestamps
     submitted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)

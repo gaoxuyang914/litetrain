@@ -27,6 +27,7 @@ measure 4.5:1–19.0:1.
 | `sidebar-collapsed.png` | Desktop navigation rail collapsed to icons |
 | `quality-report.png` | Dataset quality report with warning issues |
 | `settings.png` | Runtime settings for timeout, heartbeat, retries and CPU quota |
+| `preemption.png` | Cancelled preempted task with checkpoint resume hint |
 | `benchmark.png` | CPU benchmark result and selected thread/worker profile |
 | `compare.png` | Two-run comparison with dataset compatibility warning |
 | `distribution.png` | Expanded task status distribution with 5m–180d range selector |

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from pathlib import Path
+
+from sqlalchemy import select
 
 from app.database import utcnow
-from app.models import Task
+from app.models import Task, TaskCheckpoint
+from app.services.executors import LaunchInfo
 from tests.conftest import active_allocations, create_task, mark_running, write_result
 
 
@@ -133,3 +137,78 @@ def test_retry_then_terminal_failure(client, ctx, payload):
     assert detail["status"] == "failed"
     assert detail["retry_count"] == 1
     assert "again" in detail["failure_reason"]
+
+
+def test_preemption_requires_checkpoint(client, ctx, payload):
+    low = create_task(
+        client,
+        payload | {"name": "low priority", "cpu_cores": 6, "priority": 10},
+    )
+    mark_running(ctx, low["id"])
+    high = create_task(
+        client,
+        payload | {"name": "high priority", "cpu_cores": 4, "priority": 95},
+    )
+    high_model = ctx.tasks.get_model(high["id"])
+    assert ctx.scheduler._preempt_for(high_model) is False
+    assert client.get(f"/api/v1/tasks/{low['id']}").json()["status"] == "running"
+
+
+def test_preemption_finalises_original_and_resumes_child(client, ctx, payload, monkeypatch):
+    low = create_task(
+        client,
+        payload | {"name": "low priority", "cpu_cores": 6, "priority": 10},
+    )
+    mark_running(ctx, low["id"])
+    checkpoint = ctx.settings.data_dir / "preemption-test" / "last.pt"
+    checkpoint.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint.write_bytes(b"checkpoint")
+    with ctx.db.session() as session:
+        session.add(
+            TaskCheckpoint(
+                task_id=low["id"],
+                epoch=1,
+                path=str(checkpoint),
+                size_bytes=checkpoint.stat().st_size,
+            )
+        )
+        session.flush()
+
+    high = create_task(
+        client,
+        payload | {"name": "high priority", "cpu_cores": 4, "priority": 95},
+    )
+    high_model = ctx.tasks.get_model(high["id"])
+    assert ctx.scheduler._preempt_for(high_model) is True
+
+    low_detail = client.get(f"/api/v1/tasks/{low['id']}").json()
+    assert low_detail["status"] == "cancelled"
+    assert low_detail["failure_reason"] == "preempted"
+    assert low_detail["stop_reason"] == "preempted"
+    assert low_detail["preempted_by_task_id"] == high["id"]
+    assert active_allocations(ctx, low["id"]) == 0
+
+    with ctx.db.session() as session:
+        child = session.scalar(select(Task).where(Task.resume_from_task_id == low["id"]))
+    assert child is not None
+    assert child.status == "pending"
+    assert child.priority == 10
+    assert child.preempt_count == 1
+    assert child.resume_mode == "full"
+    assert "preemption" in (child.notes or "")
+
+    events = client.get(f"/api/v1/tasks/{low['id']}/events").json()["items"]
+    assert any(event["event_type"] == "preempted" for event in events)
+    logs = ctx.log_store.read_chunk(low["id"], 0, 32_768).content
+    assert "PREEMPTED" in logs
+    assert "resume task" in logs
+
+    def fake_launch(task):
+        return LaunchInfo("local", None, None, None, "", "")
+
+    monkeypatch.setattr(ctx.execution, "launch", fake_launch)
+    ctx.scheduler._schedule_pending()
+
+    assert client.get(f"/api/v1/tasks/{high['id']}").json()["status"] == "running"
+    assert active_allocations(ctx, high["id"]) == 1
+    assert client.get(f"/api/v1/tasks/{child.id}").json()["status"] == "pending"

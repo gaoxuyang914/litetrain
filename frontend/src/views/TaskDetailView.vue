@@ -232,6 +232,9 @@ function statusHint(taskValue: Task): string {
   if (taskValue.status === 'failed') {
     return taskValue.failure_reason || '训练失败'
   }
+  if (taskValue.failure_reason === 'preempted') {
+    return '任务被更高优先级任务抢占，CPU 已释放，并按最近 checkpoint 创建恢复任务'
+  }
   return '任务已取消，CPU 资源已释放'
 }
 
@@ -239,6 +242,7 @@ function eventTone(level: string, eventType: string): string {
   if (eventType === 'succeeded') return 'success'
   if (eventType === 'failed') return 'error'
   if (eventType === 'cancelled') return 'cancelled'
+  if (eventType === 'preempted') return 'warning'
   if (eventType === 'retry_scheduled') return 'warning'
   if (eventType === 'scheduled' || eventType === 'started') return 'accent'
   return level === 'warning' ? 'warning' : 'neutral'
