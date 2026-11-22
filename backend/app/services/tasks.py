@@ -480,6 +480,47 @@ class TaskService:
             manifest = self.manifests.get(session, task_id)
             if manifest is None:
                 raise TaskValidationError("manifest is not available for this task", 404)
+            dataset = manifest.manifest.get("dataset") or {}
+            if dataset.get("quality_status") == "unknown" or not manifest.dataset_sha256:
+                record = None
+                try:
+                    task_config = json.loads(task.config_json or "{}")
+                except json.JSONDecodeError:
+                    task_config = {}
+                record_id = task_config.get("source_dataset_id") or task.dataset_id
+                if record_id:
+                    record = session.get(DatasetRecord, record_id)
+                if record is None:
+                    source_name = Path(
+                        str(task_config.get("source_dataset") or task.dataset or "")
+                    ).name
+                    record = next(
+                        (
+                            item
+                            for item in session.scalars(
+                                select(DatasetRecord).where(DatasetRecord.status != "deleted")
+                            ).all()
+                            if Path(item.yaml_path).name == source_name
+                        ),
+                        None,
+                    )
+                if record is not None:
+                    data = dict(manifest.manifest)
+                    data["dataset"] = {
+                        **dataset,
+                        "id": record.id,
+                        "name": record.name,
+                        "version": record.version,
+                        "content_sha256": record.content_sha256,
+                        "quality_status": record.quality_status,
+                        "yaml": record.yaml_path,
+                    }
+                    return manifest.model_copy(
+                        update={
+                            "manifest": data,
+                            "dataset_sha256": record.content_sha256,
+                        }
+                    )
             return manifest
 
     def checkpoints(self, task_id: str) -> TaskCheckpointListResponse:

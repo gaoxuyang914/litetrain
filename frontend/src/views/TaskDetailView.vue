@@ -146,6 +146,20 @@ const heartbeatHint = computed(() =>
     : `${kindLabel.value}进程已结束`,
 )
 const artifactLabel = computed(() => (isTrainTask.value ? '模型产物' : '阶段产物'))
+
+function datasetQualityLabel(status: string | null | undefined): string {
+  return (
+    {
+      passed: '已通过',
+      warning: '有警告',
+      pending: '待体检',
+      auditing: '体检中',
+      blocked: '已阻断',
+      failed: '体检失败',
+      unknown: '未登记',
+    }[status ?? 'unknown'] ?? '未登记'
+  )
+}
 const manualRerunCount = computed(() =>
   task.value ? Math.max(0, task.value.attempt - task.value.retry_count - 1) : 0,
 )
@@ -858,15 +872,51 @@ onBeforeUnmount(() => stopPolling())
             <div class="lifecycle-body">
               <div class="lifecycle-item">
                 <span>数据集哈希</span>
-                <strong class="mono">{{ manifest.dataset_sha256?.slice(0, 12) ?? '—' }}…</strong>
+                <div class="manifest-value">
+                  <strong class="mono">{{ manifest.dataset_sha256?.slice(0, 12) ?? '—' }}{{ manifest.dataset_sha256 ? '…' : '' }}</strong>
+                  <button
+                    v-if="manifest.dataset_sha256"
+                    type="button"
+                    class="manifest-copy"
+                    title="复制数据集哈希"
+                    aria-label="复制数据集哈希"
+                    @click="copy(manifest.dataset_sha256, '数据集哈希')"
+                  >
+                    <el-icon><CopyDocument /></el-icon>
+                  </button>
+                </div>
               </div>
               <div class="lifecycle-item">
                 <span>模型哈希</span>
-                <strong class="mono">{{ manifest.model_sha256?.slice(0, 12) ?? '—' }}…</strong>
+                <div class="manifest-value">
+                  <strong class="mono">{{ manifest.model_sha256?.slice(0, 12) ?? '—' }}{{ manifest.model_sha256 ? '…' : '' }}</strong>
+                  <button
+                    v-if="manifest.model_sha256"
+                    type="button"
+                    class="manifest-copy"
+                    title="复制模型哈希"
+                    aria-label="复制模型哈希"
+                    @click="copy(manifest.model_sha256, '模型哈希')"
+                  >
+                    <el-icon><CopyDocument /></el-icon>
+                  </button>
+                </div>
               </div>
               <div class="lifecycle-item">
                 <span>Git commit</span>
-                <strong class="mono">{{ manifest.git_commit?.slice(0, 10) ?? 'unknown' }}</strong>
+                <div class="manifest-value">
+                  <strong class="mono">{{ manifest.git_commit?.slice(0, 10) ?? 'unknown' }}</strong>
+                  <button
+                    v-if="manifest.git_commit"
+                    type="button"
+                    class="manifest-copy"
+                    title="复制 Git commit"
+                    aria-label="复制 Git commit"
+                    @click="copy(manifest.git_commit, 'Git commit')"
+                  >
+                    <el-icon><CopyDocument /></el-icon>
+                  </button>
+                </div>
               </div>
               <div class="lifecycle-item">
                 <span>随机种子</span>
@@ -874,7 +924,7 @@ onBeforeUnmount(() => stopPolling())
               </div>
               <div class="lifecycle-item">
                 <span>数据质量</span>
-                <strong>{{ manifest.manifest.dataset?.quality_status ?? '—' }}</strong>
+                <strong>{{ datasetQualityLabel(manifest.manifest.dataset?.quality_status) }}</strong>
               </div>
             </div>
           </section>
@@ -1678,6 +1728,44 @@ onBeforeUnmount(() => stopPolling())
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.manifest-value {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  min-width: 0;
+  max-width: 64%;
+}
+
+.manifest-value strong {
+  min-width: 0;
+}
+
+.manifest-copy {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.manifest-copy:hover {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.manifest-copy:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .lifecycle-item .reason-value {

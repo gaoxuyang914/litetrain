@@ -211,13 +211,20 @@ class PipelineService:
         # models intentionally have no ORM relationship, so the unit of work
         # cannot infer ordering unless we flush explicitly.
         session.flush()
+        source_record = None
+        source_dataset_id = pipeline_cfg.get("source_dataset_id")
+        if source_dataset_id:
+            source_record = session.get(DatasetRecord, source_dataset_id)
+        if source_record is not None:
+            task.dataset_id = source_record.id
+            task.dataset_sha256 = source_record.content_sha256
         stage.task_id = task.id
         stage.status = TaskStatus.PENDING.value
         stage.config_json = json.dumps(stage_config, ensure_ascii=False)
         session.flush()
         try:
             model_path = resolve_model_path(self.settings, task.model)
-            self.manifests.persist(session, task, model_path=model_path, dataset=None)
+            self.manifests.persist(session, task, model_path=model_path, dataset=source_record)
         except Exception:
             logger.exception("could not create manifest for pipeline task %s", task.id)
         add_event(
@@ -308,6 +315,9 @@ class PipelineService:
         config = {
             "source_dataset": payload.source_dataset,
             "source_dataset_path": self._display(source_path),
+            "source_dataset_id": record.id if record else None,
+            "source_dataset_sha256": record.content_sha256 if record else None,
+            "source_quality_status": record.quality_status if record else None,
             "model": Path(model_path).name,
             "epochs": payload.epochs,
             "imgsz": payload.imgsz,
