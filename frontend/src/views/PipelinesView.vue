@@ -6,6 +6,7 @@ import {
   Download,
   Plus,
   Refresh,
+  RefreshRight,
   Search,
   Share,
   Timer,
@@ -47,6 +48,7 @@ const createOpen = ref(false)
 const creating = ref(false)
 const cancellingId = ref<string | null>(null)
 const resumingId = ref<string | null>(null)
+const rerunningId = ref<string | null>(null)
 const detailOpen = ref(false)
 const detailLoading = ref(false)
 const detail = ref<Pipeline | null>(null)
@@ -311,6 +313,29 @@ async function resumePipeline(pipeline: Pipeline) {
   }
 }
 
+async function rerunPipeline(pipeline: Pipeline) {
+  try {
+    await ElMessageBox.confirm(
+      `按「${pipeline.name}」的当前配置新建一条流水线？原流水线及历史记录会保留。`,
+      '重跑流水线',
+      { confirmButtonText: '创建重跑', cancelButtonText: '返回', type: 'info' },
+    )
+  } catch {
+    return
+  }
+  rerunningId.value = pipeline.id
+  try {
+    const created = await api.rerunPipeline(pipeline.id)
+    ElMessage.success(`已创建重跑流水线 ${created.id}`)
+    page.value = 1
+    await load(true)
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '重跑流水线失败')
+  } finally {
+    rerunningId.value = null
+  }
+}
+
 async function cancelPipeline(pipeline: Pipeline) {
   try {
     await ElMessageBox.confirm(
@@ -499,9 +524,17 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="pipeline-head-actions">
-            <button class="row-action" type="button" title="查看阶段详情" @click="openDetail(pipeline)">
-              <el-icon><Share /></el-icon>
-            </button>
+            <el-button
+              v-if="isTerminal(pipeline.status)"
+              size="small"
+              text
+              type="primary"
+              :loading="rerunningId === pipeline.id"
+              :icon="RefreshRight"
+              @click="rerunPipeline(pipeline)"
+            >
+              重跑
+            </el-button>
             <el-button
               v-if="canResumePipeline(pipeline)"
               size="small"
@@ -524,6 +557,9 @@ onBeforeUnmount(() => {
             >
               取消
             </el-button>
+            <button class="row-action" type="button" title="查看阶段详情" @click="openDetail(pipeline)">
+              <el-icon><Share /></el-icon>
+            </button>
           </div>
         </div>
 

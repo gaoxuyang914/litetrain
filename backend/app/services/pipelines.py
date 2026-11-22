@@ -853,6 +853,39 @@ class PipelineService:
             status_counts=TaskCounts(**status_counts),
         )
 
+    def rerun(self, pipeline_id: str) -> PipelineOut:
+        with self.db.session() as session:
+            pipeline = session.get(Pipeline, pipeline_id)
+            if pipeline is None:
+                raise PipelineNotFound(pipeline_id)
+            config = json.loads(pipeline.config_json or "{}")
+            name = pipeline.name
+        payload = PipelineCreate(
+            name=f"{name} · 重跑"[:100],
+            source_dataset=config.get("source_dataset", "coco128.yaml"),
+            model=config.get("model", "yolov8n.pt"),
+            epochs=int(config.get("epochs", 1)),
+            imgsz=int(config.get("imgsz", 96)),
+            batch_size=int(config.get("batch_size", 4)),
+            workers=int(config.get("workers", 0)),
+            cpu_cores=int(config.get("cpu_cores", 4)),
+            compute_threads=config.get("compute_threads"),
+            cache_mode=config.get("cache_mode", "none"),
+            priority=int(config.get("priority", 50)),
+            max_runtime_seconds=int(config.get("max_runtime_seconds", 600)),
+            max_retries=int(config.get("max_retries", 0)),
+            max_images=int(config.get("max_images", 24)),
+            val_ratio=float(config.get("val_ratio", 0.2)),
+            seed=int(config.get("seed", 42)),
+            dedupe=bool(config.get("dedupe", True)),
+            eval_split="val",
+            eval_conf=float(config.get("eval_conf", 0.001)),
+            eval_iou=float(config.get("eval_iou", 0.6)),
+            eval_max_det=int(config.get("eval_max_det", 300)),
+            notes=config.get("notes"),
+        )
+        return self.create(payload)
+
     def active_task_id(self, pipeline_id: str) -> str | None:
         with self.db.session() as session:
             pipeline = session.get(Pipeline, pipeline_id)

@@ -180,6 +180,32 @@ def test_webhook_enqueue_sign_and_deliver(client, ctx, monkeypatch, payload):
     assert client.get("/api/v1/webhooks").json()["total"] == 0
 
 
+def test_rerun_pipeline_creates_new_run(client):
+    payload = {
+        "name": "rerun source",
+        "source_dataset": "coco128.yaml",
+        "model": "yolov8n.pt",
+        "epochs": 1,
+        "imgsz": 64,
+        "batch_size": 1,
+        "cpu_cores": 2,
+        "compute_threads": 2,
+        "cache_mode": "ram",
+        "max_runtime_seconds": 60,
+        "max_retries": 0,
+    }
+    created = client.post("/api/v1/pipelines", json=payload)
+    assert created.status_code == 201, created.text
+    original = created.json()
+    rerun = client.post(f"/api/v1/pipelines/{original['id']}/rerun")
+    assert rerun.status_code == 201, rerun.text
+    cloned = rerun.json()
+    assert cloned["id"] != original["id"]
+    assert cloned["name"].endswith("· 重跑")
+    assert cloned["config"]["compute_threads"] == 2
+    assert cloned["config"]["cache_mode"] == "ram"
+
+
 def test_topology_rejects_duplicate_node_names(client):
     response = client.post(
         "/api/v1/cluster/nodes/topology",

@@ -299,6 +299,11 @@ export const api = {
     return data
   },
 
+  async rerunPipeline(pipelineId: string): Promise<Pipeline> {
+    const { data } = await http.post<Pipeline>(`/pipelines/${pipelineId}/rerun`)
+    return data
+  },
+
   async cancelPipeline(pipelineId: string): Promise<Pipeline> {
     const { data } = await http.post<Pipeline>(`/pipelines/${pipelineId}/cancel`)
     return data
