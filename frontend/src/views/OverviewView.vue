@@ -884,10 +884,19 @@ onBeforeUnmount(() => {
       <el-dialog
         v-model="distributionOpen"
         title="任务状态分布"
-        width="min(760px, calc(100vw - 32px))"
+        width="540px"
+        align-center
+        class="distribution-dialog"
       >
-        <div class="distribution-toolbar">
-          <div class="distribution-range">
+        <div class="distribution-summary">
+          <div class="distribution-total-block">
+            <span class="soft-label">任务总数</span>
+            <div class="distribution-number">
+              <strong>{{ distribution?.total ?? 0 }}</strong>
+              <span>个任务</span>
+            </div>
+          </div>
+          <div class="distribution-range-block">
             <span class="soft-label">统计范围</span>
             <el-select
               v-model="distributionRange"
@@ -903,10 +912,17 @@ onBeforeUnmount(() => {
               />
             </el-select>
           </div>
-          <span class="distribution-total">
-            {{ distribution?.label ?? '全部时间' }} · 共
-            <strong>{{ distribution?.total ?? 0 }}</strong> 个任务
-          </span>
+        </div>
+
+        <div v-if="distribution?.total" class="distribution-stack" aria-hidden="true">
+          <span
+            v-for="row in distributionRows.filter((item) => item.value > 0)"
+            :key="row.key"
+            :style="{
+              width: `${(row.value / (distribution?.total ?? 1)) * 100}%`,
+              background: row.color,
+            }"
+          ></span>
         </div>
 
         <div v-loading="distributionLoading" class="distribution-large">
@@ -926,10 +942,11 @@ onBeforeUnmount(() => {
             <strong class="mono">{{ row.value }}</strong>
             <span class="distribution-percent">{{ distributionPercent(row.value) }}</span>
           </div>
+          <p v-if="!distribution?.total" class="distribution-empty">当前范围内还没有任务</p>
         </div>
 
         <p class="distribution-note">
-          按任务提交时间筛选后统计当前状态；时间范围最长可选近半年。数据来自 SQLite，切换范围会重新查询。
+          按任务提交时间筛选后统计当前状态；数据来自 SQLite，切换范围会重新查询。
         </p>
       </el-dialog>
     </template>
@@ -4025,6 +4042,162 @@ html.dark .accent-card {
     align-items: flex-start;
     flex-direction: column;
     gap: 5px;
+  }
+}
+
+/* Distribution dialog */
+.distribution-dialog {
+  max-width: calc(100vw - 24px);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.distribution-dialog :deep(.el-dialog__header) {
+  padding: 22px 24px 4px;
+}
+
+.distribution-dialog :deep(.el-dialog__title) {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+.distribution-dialog :deep(.el-dialog__body) {
+  padding: 12px 24px 22px;
+}
+
+.distribution-summary {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 2px 2px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.distribution-total-block,
+.distribution-range-block {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.distribution-number {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.distribution-number strong {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -1px;
+  line-height: 1;
+}
+
+.distribution-number span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.distribution-range-block {
+  align-items: flex-end;
+}
+
+.distribution-select {
+  width: 132px;
+}
+
+.distribution-stack {
+  display: flex;
+  width: 100%;
+  height: 9px;
+  margin: 16px 0 2px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--panel-soft);
+}
+
+.distribution-stack span {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-right: 1px solid var(--panel);
+}
+
+.distribution-stack span:last-child {
+  border-right: 0;
+}
+
+.distribution-large {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  margin-top: 16px;
+  padding: 0;
+}
+
+.distribution-row {
+  grid-template-columns: 86px minmax(0, 1fr) 30px 38px;
+  gap: 10px;
+}
+
+.distribution-label {
+  gap: 6px;
+  font-size: 13px;
+}
+
+.distribution-track {
+  height: 8px;
+  border-radius: 4px;
+}
+
+.distribution-row > strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.distribution-percent {
+  font-size: 11px;
+}
+
+.distribution-empty {
+  margin: 12px 0 2px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.distribution-note {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+@media (max-width: 480px) {
+  .distribution-dialog :deep(.el-dialog__header) {
+    padding: 18px 18px 2px;
+  }
+
+  .distribution-dialog :deep(.el-dialog__body) {
+    padding: 10px 18px 18px;
+  }
+
+  .distribution-summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .distribution-range-block {
+    align-items: flex-start;
   }
 }
 </style>
