@@ -87,6 +87,29 @@ const attemptHint = computed(() => {
   if (retries) return `含 ${retries} 次自动重试`
   return `含 ${reruns} 次手动重跑`
 })
+
+const attemptFailureLabels: Record<string, string> = {
+  runtime_timeout: '运行超时',
+  heartbeat_timeout: '心跳超时',
+  cancelled_by_user: '用户取消',
+  preempted: '被高优先级任务抢占',
+  worker_lost: '执行进程丢失',
+  launch_failed: '启动失败',
+  unknown_error: '未知错误',
+}
+
+function attemptResult(attempt: TaskAttempt): string {
+  if (attempt.status === 'succeeded') return '训练成功'
+  if (attempt.status === 'running') return '运行中'
+  if (attempt.status === 'pending') return '等待调度'
+  if (attempt.status === 'cancelled') {
+    return attemptFailureLabels[attempt.failure_reason ?? ''] ?? '已取消'
+  }
+  if (attempt.failure_reason) {
+    return attemptFailureLabels[attempt.failure_reason] ?? '执行失败'
+  }
+  return '—'
+}
 const progressValue = computed(() => {
   if (!task.value) return 0
   if (task.value.status === 'succeeded') return 100
@@ -826,17 +849,23 @@ onBeforeUnmount(() => stopPolling())
           <span class="tag-soft">{{ attempts.length }} 次运行</span>
         </div>
         <div class="attempt-list">
+          <div class="attempt-row attempt-header">
+            <span>次数</span>
+            <span>状态</span>
+            <span>开始时间</span>
+            <span>运行耗时</span>
+            <span>CPU</span>
+            <span>结果说明</span>
+          </div>
           <div v-for="attempt in attempts" :key="attempt.attempt" class="attempt-row">
             <div class="attempt-index">
               <strong>第 {{ attempt.attempt }} 次</strong>
-              <span>{{ statusMeta[attempt.status].label }}</span>
             </div>
-            <div class="attempt-meta">
-              <span>{{ formatDate(attempt.started_at) }}</span>
-              <span>{{ formatDuration(attempt.runtime_seconds) }}</span>
-              <span class="mono">{{ attempt.cpu_cores }} 核</span>
-            </div>
-            <span class="attempt-reason mono">{{ attempt.failure_reason || (attempt.status === 'succeeded' ? '完成' : '—') }}</span>
+            <span class="attempt-state">{{ statusMeta[attempt.status].label }}</span>
+            <span class="attempt-time">{{ formatDate(attempt.started_at) }}</span>
+            <span class="attempt-duration">{{ formatDuration(attempt.runtime_seconds) }}</span>
+            <span class="attempt-cpu mono">{{ attempt.cpu_cores }} 核</span>
+            <span class="attempt-result" :title="attempt.failure_reason ?? ''">{{ attemptResult(attempt) }}</span>
           </div>
         </div>
       </section>
@@ -2367,14 +2396,28 @@ onBeforeUnmount(() => stopPolling())
 
 .attempt-row {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr) minmax(160px, 0.8fr);
+  grid-template-columns: 72px 92px 150px 84px 56px minmax(160px, 1fr);
   gap: 16px;
   align-items: center;
-  padding: 12px 18px;
+  padding: 11px 18px;
 }
 
 .attempt-row + .attempt-row {
   border-top: 1px solid var(--border);
+}
+
+.attempt-header {
+  padding-top: 9px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-soft) 72%, transparent);
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.attempt-header + .attempt-row {
+  border-top: 0;
 }
 
 .attempt-index {
@@ -2394,30 +2437,58 @@ onBeforeUnmount(() => stopPolling())
   font-size: 11px;
 }
 
-.attempt-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 13px;
+.attempt-state,
+.attempt-time,
+.attempt-duration,
+.attempt-cpu {
   color: var(--text-muted);
   font-size: 11px;
 }
 
-.attempt-reason {
+.attempt-state {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.attempt-time,
+.attempt-duration,
+.attempt-cpu {
+  font-variant-numeric: tabular-nums;
+}
+
+.attempt-result {
   overflow: hidden;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 11px;
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   .attempt-row {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 5px;
+    grid-template-columns: 64px 84px 136px 76px 50px minmax(120px, 1fr);
+    gap: 10px;
+  }
+}
+
+@media (max-width: 760px) {
+  .attempt-header {
+    display: none;
   }
 
-  .attempt-reason {
+  .attempt-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 5px 12px;
+    padding: 12px 16px;
+  }
+
+  .attempt-index {
+    grid-column: 1 / -1;
+  }
+
+  .attempt-result {
+    grid-column: 1 / -1;
     text-align: left;
   }
 }
