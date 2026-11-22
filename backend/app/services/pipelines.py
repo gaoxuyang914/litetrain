@@ -144,7 +144,9 @@ class PipelineService:
             f"--model {pipeline_cfg['model']} --data {data} "
             f"--epochs {pipeline_cfg['epochs']} --imgsz {pipeline_cfg['imgsz']} "
             f"--batch {pipeline_cfg['batch_size']} --workers {pipeline_cfg['workers']} "
-            f"--device cpu --cpu-cores {pipeline_cfg['cpu_cores']}"
+            f"--device cpu --cpu-cores {pipeline_cfg['cpu_cores']} "
+            f"--cache {pipeline_cfg.get('cache_mode', 'none')}"
+            f"{' --compute-threads ' + str(pipeline_cfg['compute_threads']) if pipeline_cfg.get('compute_threads') else ''}"
         )
 
     def _create_stage_task(
@@ -183,6 +185,8 @@ class PipelineService:
             imgsz=int(pipeline_cfg["imgsz"]),
             batch_size=int(pipeline_cfg["batch_size"]),
             workers=int(pipeline_cfg.get("workers", 0)),
+            compute_threads=pipeline_cfg.get("compute_threads"),
+            cache_mode=pipeline_cfg.get("cache_mode", "none"),
             device="cpu",
             command=command,
             notes=f"pipeline {pipeline.id} · stage {stage.stage_key}",
@@ -324,6 +328,8 @@ class PipelineService:
             "batch_size": payload.batch_size,
             "workers": payload.workers,
             "cpu_cores": payload.cpu_cores,
+            "compute_threads": payload.compute_threads,
+            "cache_mode": payload.cache_mode,
             "priority": payload.priority,
             "max_runtime_seconds": payload.max_runtime_seconds,
             "max_retries": payload.max_retries,

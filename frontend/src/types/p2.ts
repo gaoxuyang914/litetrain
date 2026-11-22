@@ -117,6 +117,8 @@ export interface PipelineConfig {
   batch_size: number
   workers: number
   cpu_cores: number
+  compute_threads?: number | null
+  cache_mode?: 'none' | 'disk' | 'ram'
   priority: number
   max_runtime_seconds: number
   max_retries: number
@@ -156,6 +158,8 @@ export interface PipelineCreatePayload {
   batch_size: number
   workers: number
   cpu_cores: number
+  compute_threads?: number | null
+  cache_mode?: 'none' | 'disk' | 'ram'
   priority: number
   max_runtime_seconds: number
   max_retries: number

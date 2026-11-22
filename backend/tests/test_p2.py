@@ -315,6 +315,8 @@ def test_pipeline_coordinator_serial_stages(client, ctx, payload):
             "imgsz": 64,
             "batch_size": 1,
             "cpu_cores": 2,
+            "compute_threads": 2,
+            "cache_mode": "disk",
             "priority": 50,
             "max_runtime_seconds": 120,
             "max_retries": 0,
@@ -324,12 +326,19 @@ def test_pipeline_coordinator_serial_stages(client, ctx, payload):
     assert response.status_code == 201, response.text
     pipeline = response.json()
     pipeline_id = pipeline["id"]
+    assert pipeline["config"]["compute_threads"] == 2
+    assert pipeline["config"]["cache_mode"] == "disk"
     assert [stage["stage_key"] for stage in pipeline["stages"]] == [
         "preprocess",
         "train",
         "evaluate",
     ]
     first_task_id = pipeline["stages"][0]["task"]["id"]
+    with ctx.db.session() as session:
+        first_task = session.get(Task, first_task_id)
+        assert first_task is not None
+        assert first_task.compute_threads == 2
+        assert first_task.cache_mode == "disk"
 
     output = ctx.settings.datasets_dir / "pipelines" / pipeline_id
     output.mkdir(parents=True, exist_ok=True)
@@ -362,6 +371,11 @@ def test_pipeline_coordinator_serial_stages(client, ctx, payload):
     assert current["stages"][0]["details"]["counts"]["kept_images"] == 1
     train_task_id = current["stages"][1]["task"]["id"]
     assert train_task_id
+    with ctx.db.session() as session:
+        train_task = session.get(Task, train_task_id)
+        assert train_task is not None
+        assert "--compute-threads 2" in train_task.command
+        assert "--cache disk" in train_task.command
     assert current["stages"][2]["task"] is None
 
     weights_dir = ctx.settings.runs_dir / train_task_id / "weights"

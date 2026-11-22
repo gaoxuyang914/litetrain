@@ -53,6 +53,8 @@ const form = reactive<PipelineCreatePayload>({
   batch_size: 4,
   workers: 0,
   cpu_cores: 4,
+  compute_threads: null,
+  cache_mode: 'none',
   priority: 50,
   max_runtime_seconds: 600,
   max_retries: 0,
@@ -96,6 +98,9 @@ function handleCpuChange(value: number | undefined) {
   if (value != null && value > maxCpu.value) {
     form.cpu_cores = maxCpu.value
     warnPolicyLimit('每阶段 CPU 核数', maxCpu.value)
+  }
+  if (form.compute_threads != null && form.compute_threads > form.cpu_cores) {
+    form.compute_threads = form.cpu_cores
   }
 }
 
@@ -236,6 +241,10 @@ async function submitCreate() {
   }
   if (form.cpu_cores > maxCpu.value) {
     warnPolicyLimit('每阶段 CPU 核数', maxCpu.value)
+    return
+  }
+  if (form.compute_threads != null && form.compute_threads > form.cpu_cores) {
+    ElMessage.warning('计算线程不能超过 CPU 核数')
     return
   }
   creating.value = true
@@ -677,6 +686,26 @@ onBeforeUnmount(() => {
               @change="handleCpuChange"
             />
             <span class="form-hint">后台上限 {{ maxCpu }} 核</span>
+          </el-form-item>
+          <el-form-item label="计算线程">
+            <el-input-number
+              v-model="form.compute_threads"
+              :min="1"
+              :max="form.cpu_cores"
+              :step="1"
+              controls-position="right"
+              placeholder="自动"
+              class="full"
+            />
+            <span class="form-hint">留空时按 CPU 配额；推荐值来自 Benchmark</span>
+          </el-form-item>
+          <el-form-item label="数据缓存">
+            <el-select v-model="form.cache_mode" class="full">
+              <el-option label="不缓存" value="none" />
+              <el-option label="磁盘缓存" value="disk" />
+              <el-option label="内存缓存" value="ram" />
+            </el-select>
+            <span class="form-hint">先跑 Benchmark，确认 I/O 瓶颈后再开启</span>
           </el-form-item>
           <el-form-item label="优先级">
             <el-input-number v-model="form.priority" :min="0" :max="100" :step="5" controls-position="right" class="full" />

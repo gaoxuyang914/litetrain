@@ -647,6 +647,8 @@ class PipelineCreate(BaseModel):
     batch_size: int = Field(default=4, ge=1, le=64)
     workers: int = Field(default=0, ge=0, le=8)
     cpu_cores: int = Field(default=4, ge=1, le=128)
+    compute_threads: int | None = Field(default=None, ge=1, le=128)
+    cache_mode: str = Field(default="none", pattern=r"^(none|disk|ram)$")
     priority: int = Field(default=50, ge=0, le=100)
     max_runtime_seconds: int = Field(default=600, ge=10, le=604_800)
     max_retries: int = Field(default=0, ge=0, le=5)
@@ -664,6 +666,14 @@ class PipelineCreate(BaseModel):
     @classmethod
     def normalize_name(cls, value: str) -> str:
         return " ".join(value.strip().split())
+
+    @field_validator("compute_threads")
+    @classmethod
+    def validate_pipeline_threads(cls, value: int | None, info) -> int | None:
+        cpu_cores = info.data.get("cpu_cores")
+        if value is not None and cpu_cores is not None and value > cpu_cores:
+            raise ValueError("compute_threads must be <= cpu_cores")
+        return value
 
     @field_validator("source_dataset", "model")
     @classmethod
