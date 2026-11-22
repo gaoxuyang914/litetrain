@@ -128,6 +128,14 @@ watch(
   () => refreshStatus(),
 )
 
+watch(
+  () => sidebarCollapsed.value,
+  (collapsed) => {
+    document.documentElement.classList.toggle('sidebar-expanded', !collapsed)
+  },
+  { immediate: true },
+)
+
 onBeforeUnmount(() => {
   if (statusTimer) window.clearInterval(statusTimer)
   window.removeEventListener('keydown', onShortcut)

@@ -919,6 +919,16 @@ html.dark .panel {
   background-color: rgba(4, 14, 9, 0.55);
 }
 
+@media (min-width: 1001px) {
+  html.sidebar-expanded .el-overlay-dialog {
+    padding-left: 228px;
+  }
+
+  html.sidebar-expanded .el-dialog {
+    max-width: calc(100vw - 260px);
+  }
+}
+
 .el-tooltip__popper {
   font-size: 13px;
 }
