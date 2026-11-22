@@ -368,19 +368,17 @@ onBeforeUnmount(() => {
           v-if="canOperate"
           :icon="RefreshRight"
           :loading="batchRerunning"
-          :disabled="selectedIds.length === 0"
           @click="batchRerun"
         >
-          批量重跑
+          批量重跑{{ selectedIds.length ? ` (${selectedIds.length})` : '' }}
         </el-button>
         <el-button
           v-if="canOperate"
           :icon="CircleClose"
           :loading="batchCancelling"
-          :disabled="selectedIds.length === 0"
           @click="batchCancel"
         >
-          批量取消
+          批量取消{{ selectedIds.length ? ` (${selectedIds.length})` : '' }}
         </el-button>
         <el-button
           v-if="canCompare"
