@@ -321,10 +321,36 @@ watch(
   },
 )
 
-onMounted(loadOptions)
+async function refreshPolicyLimits() {
+  try {
+    const data = await api.getOptions()
+    options.value = data
+    if (form.max_runtime_seconds > maxRuntime.value) {
+      form.max_runtime_seconds = maxRuntime.value
+      warnPolicyLimit('运行时长', maxRuntime.value)
+    }
+    if (form.max_retries > maxRetries.value) {
+      form.max_retries = maxRetries.value
+      warnPolicyLimit('失败重试次数', maxRetries.value)
+    }
+    if (form.cpu_cores > maxCpu.value) {
+      form.cpu_cores = maxCpu.value
+      warnPolicyLimit('CPU 核数', maxCpu.value)
+    }
+    schedulePreview()
+  } catch {
+    // The next submit will still be rejected by the server if policy changed.
+  }
+}
+
+onMounted(() => {
+  loadOptions()
+  window.addEventListener('litetrain:settings-updated', refreshPolicyLimits)
+})
 
 onBeforeUnmount(() => {
   if (previewTimer) window.clearTimeout(previewTimer)
+  window.removeEventListener('litetrain:settings-updated', refreshPolicyLimits)
 })
 </script>
 

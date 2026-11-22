@@ -224,12 +224,17 @@ class Scheduler:
 
             if task.started_at:
                 running_for = (now - task.started_at).total_seconds()
-                if running_for > task.max_runtime_seconds:
+                runtime_limit = min(
+                    task.max_runtime_seconds,
+                    self.settings.default_max_runtime_seconds,
+                )
+                if running_for > runtime_limit:
                     self._terminate(
                         task,
                         TaskStatus.FAILED,
                         "runtime_timeout",
-                        f"Task exceeded max runtime ({task.max_runtime_seconds}s)",
+                        f"Task exceeded runtime limit ({runtime_limit}s; "
+                        f"task={task.max_runtime_seconds}s, admin={self.settings.default_max_runtime_seconds}s)",
                         session=session,
                     )
                     return

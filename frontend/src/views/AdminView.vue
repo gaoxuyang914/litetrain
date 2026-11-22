@@ -57,6 +57,16 @@ async function loadUsers(silent = false) {
   }
 }
 
+function formatSeconds(value: number): string {
+  if (value >= 3600) {
+    const hours = Math.floor(value / 3600)
+    const minutes = Math.round((value % 3600) / 60)
+    return minutes ? `${hours} 小时 ${minutes} 分钟` : `${hours} 小时`
+  }
+  if (value >= 60) return `${Math.round(value / 60)} 分钟`
+  return `${value} 秒`
+}
+
 async function loadSettings() {
   settingsLoading.value = true
   try {
@@ -147,6 +157,7 @@ async function saveSettings() {
   try {
     const data = await api.updateRuntimeSettings({ ...settingsForm })
     runtimeSettings.value = data
+    window.dispatchEvent(new CustomEvent('litetrain:settings-updated'))
     ElMessage.success('运行设置已保存，新任务将使用新的默认值')
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : '保存运行设置失败')
@@ -339,7 +350,7 @@ onMounted(loadAll)
             </div>
           </div>
         </div>
-        <p class="admin-note">当前提交页上限：{{ Math.round(settingsForm.default_max_runtime_seconds / 60) }} 分钟 / {{ settingsForm.default_max_retries }} 次重试。任务提交页会同时受这里的超时和重试上限约束。</p>
+        <p class="admin-note">当前提交页上限：{{ formatSeconds(settingsForm.default_max_runtime_seconds) }} / {{ settingsForm.default_max_retries }} 次重试。任务提交页会同时受这里的超时和重试上限约束。</p>
       </template>
     </section>
 

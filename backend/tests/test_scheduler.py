@@ -139,6 +139,17 @@ def test_retry_then_terminal_failure(client, ctx, payload):
     assert "again" in detail["failure_reason"]
 
 
+def test_admin_runtime_cap_applies_to_running_task(client, ctx, payload):
+    task = create_task(client, payload | {"max_runtime_seconds": 300})
+    mark_running(ctx, task["id"], started_seconds_ago=20)
+    ctx.settings.default_max_runtime_seconds = 10
+    ctx.scheduler._inspect_running(task["id"])
+    detail = client.get(f"/api/v1/tasks/{task['id']}").json()
+    assert detail["status"] == "failed"
+    assert detail["failure_reason"] == "runtime_timeout"
+    assert active_allocations(ctx, task["id"]) == 0
+
+
 def test_preemption_requires_checkpoint(client, ctx, payload):
     low = create_task(
         client,
