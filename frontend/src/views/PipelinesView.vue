@@ -32,6 +32,14 @@ const pageSize = ref(10)
 const pipelineFilter = ref<'all' | 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'>('all')
 const searchInput = ref('')
 const appliedSearch = ref('')
+const statusCounts = ref({
+  pending: 0,
+  running: 0,
+  succeeded: 0,
+  failed: 0,
+  cancelled: 0,
+  total: 0,
+})
 const loading = ref(true)
 const refreshing = ref(false)
 const error = ref<string | null>(null)
@@ -130,14 +138,14 @@ const stageDefinitions = [
   { key: 'evaluate', label: '评估', hint: '阈值、类别 AP、延迟', index: '03' },
 ]
 
-const pipelineFilters = [
-  { value: 'all', label: '全部' },
-  { value: 'running', label: '运行中' },
-  { value: 'succeeded', label: '成功' },
-  { value: 'failed', label: '失败' },
-  { value: 'cancelled', label: '已取消' },
-  { value: 'pending', label: '排队中' },
-] as const
+const pipelineFilters = computed(() => [
+  { value: 'all' as const, label: '全部', count: statusCounts.value.total },
+  { value: 'pending' as const, label: '排队中', count: statusCounts.value.pending },
+  { value: 'running' as const, label: '运行中', count: statusCounts.value.running },
+  { value: 'succeeded' as const, label: '成功', count: statusCounts.value.succeeded },
+  { value: 'failed' as const, label: '失败', count: statusCounts.value.failed },
+  { value: 'cancelled' as const, label: '已取消', count: statusCounts.value.cancelled },
+])
 
 const hasFilters = computed(
   () => pipelineFilter.value !== 'all' || appliedSearch.value.length > 0,
@@ -212,6 +220,7 @@ async function load(silent = false) {
     })
     pipelines.value = data.items
     total.value = data.total
+    statusCounts.value = data.status_counts
     error.value = null
   } catch (err) {
     error.value = err instanceof Error ? err.message : '加载流水线失败'
@@ -418,32 +427,32 @@ onBeforeUnmount(() => {
 
     <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
 
-    <section class="panel pipeline-toolbar">
-      <div class="pipeline-filter-chips">
+    <section class="panel pipeline-filter-panel">
+      <div class="pipeline-status-chips" role="tablist" aria-label="流水线状态筛选">
         <button
           v-for="filter in pipelineFilters"
           :key="filter.value"
           type="button"
-          class="pipeline-filter"
+          class="pipeline-status-chip"
           :class="{ active: pipelineFilter === filter.value }"
           @click="selectPipelineFilter(filter.value)"
         >
-          {{ filter.label }}
+          <span class="pipeline-chip-dot" :class="filter.value"></span>
+          <span>{{ filter.label }}</span>
+          <span class="pipeline-chip-count">{{ filter.count }}</span>
         </button>
       </div>
       <div class="pipeline-search-wrap">
         <el-input
           v-model="searchInput"
-          class="pipeline-search"
+          class="pipeline-search-input"
           clearable
           :prefix-icon="Search"
           placeholder="搜索名称 / ID / 数据集 / 模型"
           @keyup.enter="applyPipelineSearch"
           @clear="applyPipelineSearch"
         />
-        <el-button :icon="Search" @click="applyPipelineSearch">搜索</el-button>
-        <span class="pipeline-result-count mono">{{ total }} 条</span>
-        <el-button v-if="hasFilters" text @click="clearPipelineFilters">清除</el-button>
+        <el-button type="primary" @click="applyPipelineSearch">搜索</el-button>
       </div>
     </section>
 
@@ -2366,5 +2375,130 @@ onBeforeUnmount(() => {
 
 .stage-connector {
   background: var(--border-strong);
+}
+
+.pipeline-filter-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  flex-wrap: nowrap;
+}
+
+.pipeline-status-chips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.pipeline-status-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.pipeline-status-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 550;
+  transition: all 0.17s ease;
+}
+
+.pipeline-status-chip:hover {
+  background: var(--panel-soft);
+  color: var(--text-secondary);
+}
+
+.pipeline-status-chip.active {
+  border-color: var(--border);
+  background: var(--panel-soft);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.pipeline-chip-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.pipeline-chip-dot.pending {
+  background: var(--amber);
+}
+
+.pipeline-chip-dot.running {
+  background: var(--accent);
+}
+
+.pipeline-chip-dot.succeeded {
+  background: var(--success);
+}
+
+.pipeline-chip-dot.failed {
+  background: var(--red);
+}
+
+.pipeline-chip-dot.cancelled {
+  background: var(--text-muted);
+}
+
+.pipeline-chip-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text-muted) 8%, transparent);
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.pipeline-status-chip.active .pipeline-chip-count {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.pipeline-search-wrap {
+  display: flex;
+  flex: 0 1 340px;
+  align-items: center;
+  gap: 7px;
+  min-width: 260px;
+}
+
+.pipeline-search-input {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .pipeline-filter-panel {
+    flex-wrap: wrap;
+  }
+
+  .pipeline-status-chips {
+    width: 100%;
+  }
+
+  .pipeline-search-wrap {
+    width: 100%;
+    flex-basis: auto;
+  }
 }
 </style>

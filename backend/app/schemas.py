@@ -729,6 +729,7 @@ class PipelineListResponse(BaseModel):
     page: int
     page_size: int
     pages: int
+    status_counts: TaskCounts = Field(default_factory=TaskCounts)
 
 
 class WebhookCreate(BaseModel):

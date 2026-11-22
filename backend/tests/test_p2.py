@@ -644,6 +644,8 @@ def test_pipeline_list_filters(client):
 
     by_dataset = client.get("/api/v1/pipelines", params={"query": "coco128"}).json()
     assert by_dataset["total"] == 2
+    assert by_dataset["status_counts"]["total"] == 2
+    assert by_dataset["status_counts"]["pending"] == 2
 
     by_status = client.get("/api/v1/pipelines", params={"status": "running"}).json()
     assert by_status["total"] == 0

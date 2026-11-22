@@ -27,6 +27,7 @@ from app.schemas import (
     PipelineOut,
     PipelineStageOut,
     PipelineStageTaskSummary,
+    TaskCounts,
 )
 from app.services.artifacts import ArtifactService
 from app.services.event_bus import EventBroker
@@ -835,8 +836,22 @@ class PipelineService:
                 .limit(page_size)
             ).all()
             items = [self._to_schema(session, pipeline) for pipeline in rows]
+            count_rows = session.execute(
+                select(Pipeline.status, func.count(Pipeline.id)).group_by(Pipeline.status)
+            ).all()
+            status_counts = {status.value: 0 for status in TaskStatus}
+            for status_key, count in count_rows:
+                status_counts[str(status_key)] = int(count)
+            status_counts["total"] = sum(status_counts.values())
         pages = (total + page_size - 1) // page_size if total else 0
-        return PipelineListResponse(items=items, total=total, page=page, page_size=page_size, pages=pages)
+        return PipelineListResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=pages,
+            status_counts=TaskCounts(**status_counts),
+        )
 
     def active_task_id(self, pipeline_id: str) -> str | None:
         with self.db.session() as session:

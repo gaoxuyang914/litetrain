@@ -180,6 +180,14 @@ export interface PipelineListResponse {
   page: number
   page_size: number
   pages: number
+  status_counts: {
+    pending: number
+    running: number
+    succeeded: number
+    failed: number
+    cancelled: number
+    total: number
+  }
 }
 
 export interface WebhookEndpoint {
