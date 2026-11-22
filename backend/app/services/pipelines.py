@@ -662,17 +662,20 @@ class PipelineService:
                         stage.started_at = stage.started_at or task.started_at
                         stage.finished_at = task.finished_at
                         stage.message = task.failure_reason if task.status == TaskStatus.FAILED.value else None
-                        if task.status == TaskStatus.SUCCEEDED.value:
-                            last_succeeded = max(last_succeeded, stage.sequence)
+                        if task.status == TaskStatus.SUCCEEDED.value and stage.sequence == last_succeeded + 1:
+                            last_succeeded = stage.sequence
+                            continue
+                break
             if last_succeeded < 0:
                 raise PipelineError("pipeline has no successful stage to resume from", 409)
+            next_waiting = next((stage for stage in stages if stage.sequence > last_succeeded), None)
             for stage in stages:
                 if stage.sequence > last_succeeded:
-                    stage.task_id = None
                     stage.status = "waiting"
                     stage.started_at = None
                     stage.finished_at = None
                     stage.message = None
+            pipeline.current_stage = next_waiting.stage_key if next_waiting else None
             pipeline.status = TaskStatus.PENDING.value
             pipeline.started_at = None
             pipeline.finished_at = None
@@ -684,7 +687,7 @@ class PipelineService:
                 f"Pipeline resumed after stage {last_succeeded + 1}",
             )
             session.flush()
-            return self._to_schema(session, pipeline, include_artifacts=True)
+        return self.get(pipeline_id)
 
     def reopen_for_task(self, task_id: str) -> PipelineOut | None:
         """Reopen a terminal pipeline when one of its stage tasks is rerun.
@@ -722,7 +725,6 @@ class PipelineService:
             stage.message = None
             for later in stages:
                 if later.sequence > stage.sequence:
-                    later.task_id = None
                     later.status = "waiting"
                     later.started_at = None
                     later.finished_at = None
@@ -734,7 +736,8 @@ class PipelineService:
                 f"Pipeline reopened by rerun of {stage.stage_key} task {task_id}",
             )
             session.flush()
-            return self._to_schema(session, pipeline, include_artifacts=True)
+            pipeline_id = pipeline.id
+        return self.get(pipeline_id)
 
     # -------------------------------------------------------------------- reads
     def _stage_out(self, session, stage: PipelineStage) -> PipelineStageOut:
@@ -986,4 +989,4 @@ class PipelineService:
                     stage.finished_at = stage.finished_at or utcnow()
             enqueue_pipeline_event(session, pipeline, "pipeline.cancelled", "Pipeline cancelled")
             session.flush()
-            return self._to_schema(session, pipeline, include_artifacts=True)
+        return self.get(pipeline_id)
