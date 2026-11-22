@@ -787,7 +787,7 @@ onBeforeUnmount(() => {
         </el-table>
       </section>
 
-      <el-dialog v-model="topologyOpen" title="多节点集群模拟" width="560px">
+      <el-dialog v-model="topologyOpen" title="多节点集群模拟" width="min(560px, calc(100vw - 32px))">
         <div class="topology-intro">
           <p>
             把平台的 <strong>{{ cpuBudget }} 个 CPU 核</strong> 预算拆成多个逻辑节点，调度器会按节点空闲容量与负载分配任务。
@@ -795,10 +795,24 @@ onBeforeUnmount(() => {
           <p>任务仍在本机 Ray 集群执行；该功能用于演示多节点资源账本、节点亲和与容量碎片化。</p>
         </div>
         <div class="topology-rows">
+          <div class="topology-row topology-row-labels" aria-hidden="true">
+            <span>节点名称</span>
+            <span>CPU 核数</span>
+            <span></span>
+          </div>
           <div v-for="(node, index) in topologyDraft" :key="index" class="topology-row">
-            <el-input v-model="node.name" placeholder="节点名称" maxlength="60" />
-            <el-input-number v-model="node.total_cpus" :min="1" :max="cpuBudget" controls-position="right" />
-            <span class="topology-unit">核</span>
+            <el-input v-model="node.name" placeholder="节点名称" maxlength="60" aria-label="节点名称" />
+            <div class="topology-cpu-field">
+              <el-input-number
+                v-model="node.total_cpus"
+                :min="1"
+                :max="cpuBudget"
+                controls-position="right"
+                class="topology-cpu-input"
+                aria-label="CPU 核数"
+              />
+              <span class="topology-unit">核</span>
+            </div>
             <el-button text :disabled="topologyDraft.length <= 1" @click="removeTopologyRow(index)">
               移除
             </el-button>
@@ -1450,20 +1464,43 @@ onBeforeUnmount(() => {
 
 .topology-row {
   display: grid;
-  grid-template-columns: 24px minmax(120px, 1fr) 120px 34px 48px;
+  grid-template-columns: minmax(0, 1fr) 150px 44px;
   align-items: center;
-  gap: 7px;
+  gap: 10px;
 }
 
-.topology-index {
+.topology-row-labels {
+  margin-bottom: -1px;
+}
+
+.topology-row-labels span {
   color: var(--text-muted);
-  font-size: 8px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.topology-row-labels span:first-child {
+  padding-left: 2px;
+}
+
+.topology-cpu-field {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.topology-cpu-input {
+  width: 116px;
 }
 
 .topology-unit {
   color: var(--text-muted);
-  font-family: var(--mono);
-  font-size: 8px;
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .topology-summary {
@@ -1485,6 +1522,21 @@ onBeforeUnmount(() => {
 
 .topology-summary strong.overloaded {
   color: var(--red);
+}
+
+@media (max-width: 600px) {
+  .topology-row {
+    grid-template-columns: minmax(0, 1fr) 122px 38px;
+    gap: 6px;
+  }
+
+  .topology-cpu-input {
+    width: 100px;
+  }
+
+  .topology-unit {
+    font-size: 11px;
+  }
 }
 
 .node-policy span {
