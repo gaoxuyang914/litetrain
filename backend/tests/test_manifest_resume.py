@@ -95,12 +95,13 @@ def test_rerun_reuses_task_and_preserves_attempts(client, ctx, payload):
         row = session.get(Task, task["id"])
         assert row is not None
         row.status = "cancelled"
+        row.name = "unit smoke · rerun"
         session.flush()
     response = client.post(f"/api/v1/tasks/{task['id']}/rerun")
     assert response.status_code == 201, response.text
     rerun = response.json()
     assert rerun["id"] == task["id"]
-    assert rerun["name"] == task["name"] == "unit smoke"
+    assert rerun["name"] == "unit smoke"
     assert rerun["attempt"] == 2
     assert rerun["status"] == "pending"
     assert rerun["resume_from_task_id"] is None

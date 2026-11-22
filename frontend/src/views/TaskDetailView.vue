@@ -76,6 +76,17 @@ let requestSeq = 0
 const taskId = computed(() => String(route.params.id || ''))
 const terminal = computed(() => (task.value ? isTerminal(task.value.status) : false))
 const statusLabel = computed(() => (task.value ? statusMeta[task.value.status].label : ''))
+const manualRerunCount = computed(() =>
+  task.value ? Math.max(0, task.value.attempt - task.value.retry_count - 1) : 0,
+)
+const attemptHint = computed(() => {
+  if (!task.value || task.value.attempt <= 1) return '首次尝试'
+  const retries = task.value.retry_count
+  const reruns = manualRerunCount.value
+  if (retries && reruns) return `含 ${reruns} 次手动重跑 · ${retries} 次自动重试`
+  if (retries) return `含 ${retries} 次自动重试`
+  return `含 ${reruns} 次手动重跑`
+})
 const progressValue = computed(() => {
   if (!task.value) return 0
   if (task.value.status === 'succeeded') return 100
@@ -206,14 +217,10 @@ const summaryStats = computed(() => {
       icon: Timer,
     },
     {
-      label: '执行尝试',
+      label: '运行次数',
       value: `${task.value.attempt}`,
       unit: '次运行',
-      hint: task.value.retry_count
-        ? `已自动重试 ${task.value.retry_count} 次`
-        : task.value.attempt > 1
-          ? '包含手动重跑，历史保留'
-          : '首次尝试',
+      hint: attemptHint.value,
       icon: Refresh,
     },
     {

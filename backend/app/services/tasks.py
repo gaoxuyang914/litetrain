@@ -525,6 +525,7 @@ class TaskService:
 
             previous_attempt = original.attempt
             self.record_attempt(session, original)
+            original.name = _base_task_name(original.name)
             try:
                 Path(original.result_path).unlink(missing_ok=True)
             except OSError:
