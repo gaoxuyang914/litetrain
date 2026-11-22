@@ -17,6 +17,7 @@ import type {
   TaskMetrics,
   TaskOptions,
   TaskQuery,
+  RuntimeSettings,
 } from '@/types/task'
 import type {
   Artifact,
@@ -108,6 +109,18 @@ export const api = {
 
   async getOptions(): Promise<TaskOptions> {
     const { data } = await http.get<TaskOptions>('/tasks/options')
+    return data
+  },
+
+  async getRuntimeSettings(): Promise<RuntimeSettings> {
+    const { data } = await http.get<RuntimeSettings>('/settings')
+    return data
+  },
+
+  async updateRuntimeSettings(
+    payload: Partial<Omit<RuntimeSettings, 'limits' | 'total_cpus' | 'max_runtime_seconds_limit' | 'updated_at'>>,
+  ): Promise<RuntimeSettings> {
+    const { data } = await http.patch<RuntimeSettings>('/settings', payload)
     return data
   },
 

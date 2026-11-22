@@ -158,6 +158,26 @@ class TaskOptions(BaseModel):
     limits: dict
 
 
+class RuntimeSettingsOut(BaseModel):
+    default_max_runtime_seconds: int
+    heartbeat_timeout_seconds: int
+    default_max_retries: int
+    default_cpu_cores: int
+    user_cpu_quota: int
+    total_cpus: int
+    max_runtime_seconds_limit: int
+    limits: dict[str, list[int]]
+    updated_at: OptionalUtcDateTime = None
+
+
+class RuntimeSettingsUpdate(BaseModel):
+    default_max_runtime_seconds: int | None = Field(default=None, ge=10, le=604_800)
+    heartbeat_timeout_seconds: int | None = Field(default=None, ge=5, le=600)
+    default_max_retries: int | None = Field(default=None, ge=0, le=5)
+    default_cpu_cores: int | None = Field(default=None, ge=1, le=256)
+    user_cpu_quota: int | None = Field(default=None, ge=1, le=256)
+
+
 class TaskPreviewResponse(BaseModel):
     command: str
     equivalent_yolo_command: str

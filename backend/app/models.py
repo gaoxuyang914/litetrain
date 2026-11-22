@@ -120,6 +120,14 @@ class Task(Base):
         return TaskStatus(self.status)
 
 
+class RuntimeSetting(Base):
+    __tablename__ = "runtime_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class Node(Base):
     __tablename__ = "nodes"
 

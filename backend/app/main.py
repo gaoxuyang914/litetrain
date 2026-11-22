@@ -17,6 +17,7 @@ from app.api.assets import artifacts_router, datasets_router
 from app.api.cluster import router as cluster_router
 from app.api.internal import router as internal_router
 from app.api.pipelines import router as pipelines_router
+from app.api.settings import router as settings_router
 from app.api.tasks import router as tasks_router
 from app.api.webhooks import router as webhooks_router
 from app.config import Settings, get_settings
@@ -120,6 +121,7 @@ def create_app(
     app.include_router(datasets_router, prefix=prefix)
     app.include_router(artifacts_router, prefix=prefix)
     app.include_router(webhooks_router, prefix=prefix)
+    app.include_router(settings_router, prefix=prefix)
 
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> JSONResponse:

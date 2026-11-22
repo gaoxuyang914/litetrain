@@ -180,6 +180,18 @@ export interface TaskOptions {
   limits: Record<string, [number, number]>
 }
 
+export interface RuntimeSettings {
+  default_max_runtime_seconds: number
+  heartbeat_timeout_seconds: number
+  default_max_retries: number
+  default_cpu_cores: number
+  user_cpu_quota: number
+  total_cpus: number
+  max_runtime_seconds_limit: number
+  limits: Record<string, [number, number]>
+  updated_at: string | null
+}
+
 export interface PreviewResponse {
   command: string
   equivalent_yolo_command: string

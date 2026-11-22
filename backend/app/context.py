@@ -18,6 +18,7 @@ from app.services.pipelines import PipelineService
 from app.services.quality import DatasetQualityService
 from app.services.resources import ResourceService
 from app.services.scheduler import Scheduler
+from app.services.settings import RuntimeSettingsService
 from app.services.tasks import TaskService
 from app.services.webhooks import (
     WebhookDispatcher,
@@ -35,6 +36,7 @@ class AppContext:
     broker: EventBroker
     log_store: LogStore
     resources: ResourceService
+    runtime_settings: RuntimeSettingsService
     execution: ExecutionManager
     tasks: TaskService
     scheduler: Scheduler
@@ -59,6 +61,7 @@ class AppContext:
             enabled=settings.redis_enabled,
         )
         resources = ResourceService(settings, db)
+        runtime_settings = RuntimeSettingsService(settings, db)
         execution = ExecutionManager(settings, db)
         datasets = DatasetService(settings, db)
         quality = DatasetQualityService(settings, db, datasets)
@@ -79,6 +82,7 @@ class AppContext:
             broker=broker,
             log_store=log_store,
             resources=resources,
+            runtime_settings=runtime_settings,
             execution=execution,
             tasks=tasks,
             scheduler=scheduler,
@@ -94,6 +98,7 @@ class AppContext:
 
     def initialize(self) -> None:
         self.db.init()
+        self.runtime_settings.load()
         self.broker.connect()
         self.execution.connect()
         self.resources.ensure_node()
