@@ -223,7 +223,7 @@ onBeforeUnmount(() => {
           <span class="refresh-dot" :class="{ live: hasActive }"></span>
           <span>{{ hasActive ? '流水线执行中' : '自动刷新' }}</span>
         </div>
-        <el-button :icon="Refresh" :loading="refreshing" circle title="刷新" @click="load(true)" />
+        <el-button class="page-icon-button" :icon="Refresh" :loading="refreshing" title="刷新" @click="load(true)" />
         <el-button type="primary" :icon="Plus" @click="openCreate">新建流水线</el-button>
       </div>
     </div>

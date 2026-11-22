@@ -487,7 +487,7 @@ onBeforeUnmount(() => {
         <h1 class="page-title">数据与产物</h1>
       </div>
       <div class="page-actions">
-        <el-button :icon="Refresh" :loading="refreshing" circle title="刷新" @click="load(true)" />
+        <el-button class="page-icon-button" :icon="Refresh" :loading="refreshing" title="刷新" @click="load(true)" />
         <el-button v-if="activeTab === 'datasets'" type="primary" :icon="UploadFilled" @click="openUpload">
           导入数据集
         </el-button>

@@ -335,8 +335,8 @@ onBeforeUnmount(() => {
           <el-switch v-model="autoRefresh" size="small" />
         </div>
         <el-button
+          class="page-icon-button"
           :icon="Refresh"
-          circle
           :loading="refreshing"
           title="立即刷新"
           @click="fetchTasks()"

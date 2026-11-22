@@ -561,6 +561,35 @@ html.dark .panel {
   transition-duration: 100ms;
 }
 
+.el-button.page-icon-button {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border-color: var(--border);
+  border-radius: 10px;
+  background: var(--panel-soft);
+  color: var(--text-secondary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.el-button.page-icon-button .el-icon {
+  font-size: 15px;
+}
+
+.el-button.page-icon-button:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: none;
+}
+
+.el-button.page-icon-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .el-button--primary {
   --el-button-bg-color: #111111;
   --el-button-border-color: #111111;
@@ -885,6 +914,13 @@ html.dark .panel {
   }
 
   .el-button:not(.is-text) {
+    min-height: 44px;
+  }
+
+  .el-button.page-icon-button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
     min-height: 44px;
   }
 

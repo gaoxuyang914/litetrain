@@ -452,9 +452,9 @@ onBeforeUnmount(() => stopPolling())
       </div>
       <div class="page-actions">
         <el-button
+          class="page-icon-button"
           :icon="Refresh"
           :loading="refreshing"
-          circle
           title="刷新详情"
           @click="loadAll(false)"
         />
