@@ -1,5 +1,8 @@
 # LiteTrain · 带 Web 界面的轻量化 CPU YOLO 训练平台
 
+[![CI](https://github.com/gaoxuyang914/litetrain/actions/workflows/ci.yml/badge.svg)](https://github.com/gaoxuyang914/litetrain/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/gaoxuyang914/litetrain)](https://github.com/gaoxuyang914/litetrain/blob/main/LICENSE)
+
 LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上提交、排队、运行、取消、观察 YOLO 训练任务。调度与执行全部在本地完成，**CPU-only**，不使用 GPU、NCCL 或 DDP。
 
 技术栈：**FastAPI + SQLite + Redis + Ray + ultralytics YOLO**；前端 **Vue 3 + Vite + TypeScript + Element Plus + ECharts**。
@@ -715,6 +718,15 @@ curl -X POST http://127.0.0.1:8000/api/v1/pipelines \
 
 ## 测试与验收
 
+### GitHub Actions
+
+仓库包含 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)，在 push 到 `main`、Pull Request 和手动触发时运行：
+
+- **Backend tests**：Python 3.13 + CPU PyTorch，安装依赖后执行 `pytest`
+- **Frontend typecheck and build**：Node.js 22，执行 `npm ci`、`vue-tsc --noEmit` 和 `vite build`
+
+首次运行需要下载 PyTorch / Ray / Ultralytics，GitHub Actions 会自动缓存 pip 和 npm 依赖。
+
 ### 自动测试
 
 ```powershell
@@ -722,7 +734,7 @@ cd backend
 ..\.venv\Scripts\python -m pytest
 ```
 
-结果：**28 passed**。测试覆盖 P0/P1 + P2：
+结果：**37 passed**。测试覆盖 P0/P1 + P2：
 
 - 创建、分页、状态筛选、ID/名称搜索；
 - 表单选项和命令预览；
