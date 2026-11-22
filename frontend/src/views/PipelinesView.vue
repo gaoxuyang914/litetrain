@@ -63,6 +63,57 @@ const form = reactive<PipelineCreatePayload>({
 })
 
 const hasActive = computed(() => pipelines.value.some((item) => !isTerminal(item.status)))
+const maxRuntime = computed(() => options.value?.limits.max_runtime_seconds?.[1] ?? 600)
+const maxRetries = computed(() => options.value?.limits.max_retries?.[1] ?? 3)
+const maxCpu = computed(
+  () => options.value?.limits.cpu_cores?.[1] ?? options.value?.user_cpu_quota ?? 8,
+)
+
+function warnPolicyLimit(label: string, value: number): void {
+  ElMessage.warning(`${label}最多为 ${value}，已按后台配置限制`)
+}
+
+function handleRuntimeChange(value: number | undefined) {
+  if (value != null && value > maxRuntime.value) {
+    form.max_runtime_seconds = maxRuntime.value
+    warnPolicyLimit('最大运行时长', maxRuntime.value)
+  }
+}
+
+function handleRetriesChange(value: number | undefined) {
+  if (value != null && value > maxRetries.value) {
+    form.max_retries = maxRetries.value
+    warnPolicyLimit('失败重试次数', maxRetries.value)
+  }
+}
+
+function handleCpuChange(value: number | undefined) {
+  if (value != null && value > maxCpu.value) {
+    form.cpu_cores = maxCpu.value
+    warnPolicyLimit('每阶段 CPU 核数', maxCpu.value)
+  }
+}
+
+async function refreshPolicyLimits() {
+  try {
+    const data = await api.getOptions()
+    options.value = data
+    if (form.max_runtime_seconds > maxRuntime.value) {
+      form.max_runtime_seconds = maxRuntime.value
+      warnPolicyLimit('最大运行时长', maxRuntime.value)
+    }
+    if (form.max_retries > maxRetries.value) {
+      form.max_retries = maxRetries.value
+      warnPolicyLimit('失败重试次数', maxRetries.value)
+    }
+    if (form.cpu_cores > maxCpu.value) {
+      form.cpu_cores = maxCpu.value
+      warnPolicyLimit('每阶段 CPU 核数', maxCpu.value)
+    }
+  } catch {
+    // The create endpoint still validates the current policy.
+  }
+}
 const stageDefinitions = [
   { key: 'preprocess', label: '预处理', hint: '去重、校验、分层切分', index: '01' },
   { key: 'train', label: '训练', hint: 'YOLOv8n，CPU', index: '02' },
@@ -95,7 +146,14 @@ async function loadOptions() {
       4,
       data.limits.cpu_cores?.[1] ?? data.user_cpu_quota,
     )
-    form.max_runtime_seconds = data.defaults.max_runtime_seconds
+    form.max_runtime_seconds = Math.min(
+      data.defaults.max_runtime_seconds,
+      data.limits.max_runtime_seconds?.[1] ?? data.defaults.max_runtime_seconds,
+    )
+    form.max_retries = Math.min(
+      form.max_retries,
+      data.limits.max_retries?.[1] ?? form.max_retries,
+    )
   } catch {
     // Keep the form defaults; the create operation surfaces the exact error.
   }
@@ -125,6 +183,18 @@ function openCreate() {
 async function submitCreate() {
   if (!form.model || !form.source_dataset) {
     ElMessage.warning('请选择模型和数据源')
+    return
+  }
+  if (form.max_runtime_seconds > maxRuntime.value) {
+    warnPolicyLimit('最大运行时长', maxRuntime.value)
+    return
+  }
+  if (form.max_retries > maxRetries.value) {
+    warnPolicyLimit('失败重试次数', maxRetries.value)
+    return
+  }
+  if (form.cpu_cores > maxCpu.value) {
+    warnPolicyLimit('每阶段 CPU 核数', maxCpu.value)
     return
   }
   creating.value = true
@@ -242,6 +312,7 @@ function stageClassRows(stage: PipelineStage): Array<Record<string, any>> {
 
 onMounted(async () => {
   await Promise.all([load(), loadOptions()])
+  window.addEventListener('litetrain:settings-updated', refreshPolicyLimits)
   timer = window.setInterval(() => {
     if (!document.hidden && (hasActive.value || pipelines.value.length === 0)) load(true)
   }, 3000)
@@ -249,6 +320,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (timer) window.clearInterval(timer)
+  window.removeEventListener('litetrain:settings-updated', refreshPolicyLimits)
 })
 </script>
 
@@ -514,19 +586,38 @@ onBeforeUnmount(() => {
             <el-input-number
               v-model="form.cpu_cores"
               :min="1"
-              :max="options?.limits.cpu_cores?.[1] ?? options?.user_cpu_quota ?? 8"
+              :max="64"
               controls-position="right"
               class="full"
+              @change="handleCpuChange"
             />
+            <span class="form-hint">后台上限 {{ maxCpu }} 核</span>
           </el-form-item>
           <el-form-item label="优先级">
             <el-input-number v-model="form.priority" :min="0" :max="100" :step="5" controls-position="right" class="full" />
           </el-form-item>
           <el-form-item label="最大运行时长（秒）">
-            <el-input-number v-model="form.max_runtime_seconds" :min="10" :max="86400" :step="60" controls-position="right" class="full" />
+            <el-input-number
+              v-model="form.max_runtime_seconds"
+              :min="10"
+              :max="86400"
+              :step="60"
+              controls-position="right"
+              class="full"
+              @change="handleRuntimeChange"
+            />
+            <span class="form-hint">后台上限 {{ maxRuntime }} 秒</span>
           </el-form-item>
           <el-form-item label="失败重试">
-            <el-input-number v-model="form.max_retries" :min="0" :max="5" controls-position="right" class="full" />
+            <el-input-number
+              v-model="form.max_retries"
+              :min="0"
+              :max="5"
+              controls-position="right"
+              class="full"
+              @change="handleRetriesChange"
+            />
+            <span class="form-hint">后台上限 {{ maxRetries }} 次</span>
           </el-form-item>
           <el-form-item label="备注" class="span-2">
             <el-input v-model="form.notes" maxlength="500" show-word-limit placeholder="可选：记录流水线目的" />
@@ -1081,6 +1172,14 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.55;
+}
+
+.form-hint {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.4;
 }
 
 .switch-field {

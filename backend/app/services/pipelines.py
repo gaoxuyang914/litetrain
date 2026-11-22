@@ -247,6 +247,19 @@ class PipelineService:
 
     # ----------------------------------------------------------------- creation
     def create(self, payload: PipelineCreate) -> PipelineOut:
+        runtime_cap = min(
+            self.settings.default_max_runtime_seconds,
+            self.settings.max_runtime_seconds_limit,
+        )
+        retry_cap = max(0, min(5, self.settings.default_max_retries))
+        if payload.max_runtime_seconds > runtime_cap:
+            raise PipelineError(
+                f"max_runtime_seconds must be <= platform limit ({runtime_cap}s configured in admin)"
+            )
+        if payload.max_retries > retry_cap:
+            raise PipelineError(
+                f"max_retries must be <= platform limit ({retry_cap} configured in admin)"
+            )
         if payload.cpu_cores > self.settings.total_cpus:
             raise PipelineError(f"cpu_cores must be <= {self.settings.total_cpus}")
         if payload.cpu_cores > self.settings.user_cpu_quota:

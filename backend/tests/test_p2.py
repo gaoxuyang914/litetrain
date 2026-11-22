@@ -404,6 +404,32 @@ def test_pipeline_coordinator_serial_stages(client, ctx, payload):
     shutil.rmtree(ctx.settings.runs_dir / eval_task_id, ignore_errors=True)
 
 
+def test_pipeline_rejects_over_admin_runtime_limits(client, ctx):
+    ctx.settings.default_max_runtime_seconds = 30
+    ctx.settings.default_max_retries = 1
+    base = {
+        "name": "limit pipeline",
+        "source_dataset": "coco128.yaml",
+        "model": "yolov8n.pt",
+        "epochs": 1,
+        "imgsz": 64,
+        "batch_size": 2,
+        "cpu_cores": 2,
+        "max_runtime_seconds": 31,
+        "max_retries": 0,
+    }
+    too_long = client.post("/api/v1/pipelines", json=base)
+    assert too_long.status_code == 422
+    assert "max_runtime_seconds" in too_long.json()["detail"]
+
+    too_many_retries = client.post(
+        "/api/v1/pipelines",
+        json={**base, "max_runtime_seconds": 30, "max_retries": 2},
+    )
+    assert too_many_retries.status_code == 422
+    assert "max_retries" in too_many_retries.json()["detail"]
+
+
 def test_pipeline_failure_stops_later_stages(client, ctx):
     created = client.post(
         "/api/v1/pipelines",
