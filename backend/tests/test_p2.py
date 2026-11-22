@@ -404,6 +404,26 @@ def test_pipeline_coordinator_serial_stages(client, ctx, payload):
     shutil.rmtree(ctx.settings.runs_dir / eval_task_id, ignore_errors=True)
 
 
+def test_pipeline_evaluation_must_use_validation_split(client):
+    response = client.post(
+        "/api/v1/pipelines",
+        json={
+            "name": "train split eval",
+            "source_dataset": "coco128.yaml",
+            "model": "yolov8n.pt",
+            "epochs": 1,
+            "imgsz": 64,
+            "batch_size": 2,
+            "cpu_cores": 2,
+            "max_runtime_seconds": 60,
+            "max_retries": 0,
+            "eval_split": "train",
+        },
+    )
+    assert response.status_code == 422
+    assert "验证集" in response.json()["detail"]
+
+
 def test_pipeline_rejects_over_admin_runtime_limits(client, ctx):
     ctx.settings.default_max_runtime_seconds = 30
     ctx.settings.default_max_retries = 1

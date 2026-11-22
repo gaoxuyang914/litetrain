@@ -549,13 +549,13 @@ onBeforeUnmount(() => {
           </el-form-item>
           <div class="form-section span-2">
             <strong>评估策略</strong>
-            <span>在训练后生成整体指标、类别 AP、阈值配置和 CPU 推理延迟，并写入评估报告。</span>
+            <span>固定使用验证集生成整体指标、类别 AP、阈值配置和 CPU 推理延迟；不使用训练集评估，避免指标失真。</span>
           </div>
-          <el-form-item label="评估数据 split">
-            <el-select v-model="form.eval_split" class="full">
-              <el-option label="验证集 val" value="val" />
-              <el-option label="训练集 train" value="train" />
-            </el-select>
+          <el-form-item label="评估数据">
+            <div class="fixed-policy">
+              <strong>验证集 val</strong>
+              <span>固定</span>
+            </div>
           </el-form-item>
           <el-form-item label="置信度阈值">
             <el-input-number
@@ -1180,6 +1180,31 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
   font-size: 10px;
   line-height: 1.4;
+}
+
+.fixed-policy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-soft);
+}
+
+.fixed-policy strong {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.fixed-policy span {
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 9px;
 }
 
 .switch-field {

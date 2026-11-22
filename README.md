@@ -113,7 +113,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 - 失败/取消任务支持 **从断点继续**：选择具体 checkpoint，可选完整恢复（优化器、学习率、epoch 进度）或仅加载权重；数据集哈希变化会拒绝恢复。完整恢复结束后会把 `best.pt / last.pt / results.csv / args.yaml` 同步回新任务目录，保证产物页可见。
 - **提交页数据准备融合**：数据质量与预处理策略放在同一个「数据准备」分区；打开「使用预处理策略」后可直接从提交页创建预处理 → 训练 → 评估流水线，质量警告在同一处确认。
 - 流水线 **预处理 v2**：扫描原数据、SHA-256 去重、标签格式/类别/坐标校验，按固定种子做可复现训练/验证切分，输出图片统计、类别分布和丢弃原因报告。
-- 流水线 **评估 v2**：支持选择 train/val、置信度/IoU/max-det，输出整体指标、逐类 AP50-95、CPU 延迟/FPS、阈值配置和 `evaluation.json` 报告。
+- 流水线 **评估 v2**：固定使用验证集 val，支持置信度/IoU/max-det，输出整体指标、逐类 AP50-95、CPU 延迟/FPS、阈值配置和 `evaluation.json` 报告；训练集不参与评估，避免指标失真。
 
 ### 额外实现
 
@@ -631,7 +631,7 @@ stateDiagram-v2
 - `pipelines` + `pipeline_stages` 保存状态；`PipelineStage.task_id` 关联普通 Task，**未修改 Task 既有 schema**。
 - 创建 pipeline 时只创建 preprocess Task；后续阶段由 scheduler tick 中的 coordinator 创建。
 - 阶段行为：
-  - `preprocess`：读取 YAML，校验 train/val，复制图片/标签子集，生成绝对路径安全的新 `dataset.yaml` 和 manifest；指标记录图片/标签数。
+  - `preprocess`：扫描 train/val，SHA-256 去重、校验标签与坐标，按固定种子重新切分 train/val，生成安全 `dataset.yaml` 和 `preprocess.json`。
   - `train`：现有 YOLO worker，使用生成的数据集。
   - `evaluate`：用上一阶段 `runs/{task_id}/weights/best.pt` 执行 `YOLO.val()`，结果写回指标。
 - 失败/取消：当前阶段失败或取消后，pipeline 终止，后续阶段 `cancelled`；支持通过 `POST /pipelines/{id}/cancel` 取消。
@@ -882,7 +882,7 @@ cd backend
 ..\.venv\Scripts\python -m pytest
 ```
 
-结果：**47 passed**。测试覆盖 P0/P1 + P2：
+结果：**48 passed**。测试覆盖 P0/P1 + P2：
 
 - 创建、分页、状态筛选、ID/名称搜索；
 - 表单选项和命令预览；

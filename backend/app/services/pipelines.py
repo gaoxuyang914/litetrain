@@ -252,6 +252,8 @@ class PipelineService:
             self.settings.max_runtime_seconds_limit,
         )
         retry_cap = max(0, min(5, self.settings.default_max_retries))
+        if payload.eval_split != "val":
+            raise PipelineError("评估必须使用验证集 val，避免训练集指标失真")
         if payload.max_runtime_seconds > runtime_cap:
             raise PipelineError(
                 f"max_runtime_seconds must be <= platform limit ({runtime_cap}s configured in admin)"
