@@ -40,6 +40,18 @@ const artifactQuery = ref('')
 const artifactTaskFilter = ref('')
 const artifactPage = ref(1)
 const artifactPageSize = 10
+const datasetQuery = ref('')
+const datasetQualityFilter = ref<'all' | 'passed' | 'warning' | 'pending' | 'blocked'>('all')
+const datasetPage = ref(1)
+const datasetPageSize = 10
+const modelQuery = ref('')
+const modelSourceFilter = ref<'all' | 'builtin' | 'uploaded'>('all')
+const modelPage = ref(1)
+const modelPageSize = 10
+const webhookQuery = ref('')
+const webhookStatusFilter = ref<'all' | 'active' | 'inactive'>('all')
+const webhookPage = ref(1)
+const webhookPageSize = 10
 const webhooks = ref<WebhookEndpoint[]>([])
 const deliveries = ref<WebhookDelivery[]>([])
 const loading = ref(true)
@@ -83,6 +95,80 @@ let timer: number | undefined
 
 const activeWebhooks = computed(() => webhooks.value.filter((item) => item.active).length)
 const artifactBytes = computed(() => artifacts.value.reduce((sum, item) => sum + item.size_bytes, 0))
+const datasetQualityFilters = [
+  { key: 'all', label: '全部' },
+  { key: 'passed', label: '已通过' },
+  { key: 'warning', label: '有警告' },
+  { key: 'pending', label: '待体检' },
+  { key: 'blocked', label: '已阻断' },
+] as const
+const modelSourceFilters = [
+  { key: 'all', label: '全部' },
+  { key: 'builtin', label: '平台内置' },
+  { key: 'uploaded', label: '本地上传' },
+] as const
+const webhookStatusFilters = [
+  { key: 'all', label: '全部' },
+  { key: 'active', label: '已启用' },
+  { key: 'inactive', label: '已停用' },
+] as const
+
+const filteredDatasets = computed(() => {
+  const query = datasetQuery.value.trim().toLowerCase()
+  return datasets.value.filter((item) => {
+    if (datasetQualityFilter.value !== 'all' && item.quality_status !== datasetQualityFilter.value) {
+      return false
+    }
+    if (!query) return true
+    return [item.name, item.version, item.yaml_path, item.description, item.quality_status]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query))
+  })
+})
+const pagedDatasets = computed(() =>
+  filteredDatasets.value.slice(
+    (datasetPage.value - 1) * datasetPageSize,
+    datasetPage.value * datasetPageSize,
+  ),
+)
+
+const filteredModels = computed(() => {
+  const query = modelQuery.value.trim().toLowerCase()
+  return models.value.filter((item) => {
+    if (modelSourceFilter.value === 'builtin' && !item.is_builtin) return false
+    if (modelSourceFilter.value === 'uploaded' && item.is_builtin) return false
+    if (!query) return true
+    return [item.name, item.sha256, item.is_builtin ? 'builtin 内置' : 'uploaded 上传']
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query))
+  })
+})
+const pagedModels = computed(() =>
+  filteredModels.value.slice(
+    (modelPage.value - 1) * modelPageSize,
+    modelPage.value * modelPageSize,
+  ),
+)
+const filteredWebhooks = computed(() => {
+  const query = webhookQuery.value.trim().toLowerCase()
+  return webhooks.value.filter((item) => {
+    if (webhookStatusFilter.value === 'active' && !item.active) return false
+    if (webhookStatusFilter.value === 'inactive' && item.active) return false
+    if (!query) return true
+    return [item.name, item.url, item.events.join(' '), item.active ? 'active 启用' : 'inactive 停用']
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query))
+  })
+})
+const pagedWebhooks = computed(() =>
+  filteredWebhooks.value.slice(
+    (webhookPage.value - 1) * webhookPageSize,
+    webhookPage.value * webhookPageSize,
+  ),
+)
+const hasWebhookFilters = computed(
+  () => webhookQuery.value.trim().length > 0 || webhookStatusFilter.value !== 'all',
+)
 const filteredArtifacts = computed(() => {
   const query = artifactQuery.value.trim().toLowerCase()
   return artifacts.value.filter((item) => {
@@ -526,6 +612,18 @@ watch(artifactQuery, () => {
   artifactPage.value = 1
 })
 
+watch([datasetQuery, datasetQualityFilter], () => {
+  datasetPage.value = 1
+})
+
+watch([modelQuery, modelSourceFilter], () => {
+  modelPage.value = 1
+})
+
+watch([webhookQuery, webhookStatusFilter], () => {
+  webhookPage.value = 1
+})
+
 function clearArtifactTask() {
   artifactTaskFilter.value = ''
   const query = { ...route.query }
@@ -630,7 +728,29 @@ onBeforeUnmount(() => {
       <el-skeleton v-if="loading" :rows="7" animated class="asset-skeleton" />
 
       <template v-else-if="activeTab === 'datasets'">
-        <el-table :data="datasets" row-key="id" class="asset-table">
+        <div class="artifact-toolbar">
+          <span class="soft-label">筛选</span>
+          <button
+            v-for="filter in datasetQualityFilters"
+            :key="filter.key"
+            type="button"
+            class="filter-chip"
+            :class="{ active: datasetQualityFilter === filter.key }"
+            @click="datasetQualityFilter = filter.key"
+          >
+            {{ filter.label }}
+          </button>
+          <el-input
+            v-model="datasetQuery"
+            class="artifact-search"
+            size="small"
+            clearable
+            :prefix-icon="Search"
+            placeholder="搜索数据集 / 版本 / YAML"
+          />
+          <span class="filter-count mono">{{ filteredDatasets.length }} / {{ datasets.length }}</span>
+        </div>
+        <el-table :data="pagedDatasets" row-key="id" class="asset-table">
           <el-table-column label="数据集" min-width="230">
             <template #default="{ row }">
               <div class="dataset-cell">
@@ -679,14 +799,16 @@ onBeforeUnmount(() => {
           <template #empty>
             <div class="empty-state">
               <span class="empty-icon"><el-icon><FolderOpened /></el-icon></span>
-              <strong>还没有数据集</strong>
-              <span>上传一个包含 YOLO dataset.yaml、images 和 labels 的 zip 压缩包。</span>
-              <el-button type="primary" plain size="small" @click="openUpload">导入数据集</el-button>
+              <strong>{{ filteredDatasets.length === 0 && (datasetQuery || datasetQualityFilter !== 'all') ? '没有匹配的数据集' : '还没有数据集' }}</strong>
+              <span v-if="filteredDatasets.length === 0 && (datasetQuery || datasetQualityFilter !== 'all')">换个关键词或质量状态试试。</span>
+              <span v-else>上传一个包含 YOLO dataset.yaml、images 和 labels 的 zip 压缩包。</span>
+              <el-button v-if="filteredDatasets.length === 0 && (datasetQuery || datasetQualityFilter !== 'all')" plain size="small" @click="datasetQuery = ''; datasetQualityFilter = 'all'">清除筛选</el-button>
+              <el-button v-else type="primary" plain size="small" @click="openUpload">导入数据集</el-button>
             </div>
           </template>
         </el-table>
         <div class="dataset-mobile-list">
-          <article v-for="row in datasets" :key="row.id" class="dataset-mobile-card">
+          <article v-for="row in pagedDatasets" :key="row.id" class="dataset-mobile-card">
             <div class="mobile-card-head">
               <span class="dataset-icon"><el-icon><FolderOpened /></el-icon></span>
               <div><strong>{{ row.name }}</strong><span class="mono">{{ row.version }} · {{ formatBytes(row.size_bytes) }}</span></div>
@@ -703,6 +825,16 @@ onBeforeUnmount(() => {
               <el-button v-if="!row.is_builtin" size="small" text :loading="actionBusy === row.id" :icon="Delete" @click="removeDataset(row)" />
             </div>
           </article>
+        </div>
+        <div v-if="filteredDatasets.length" class="artifact-pager">
+          <el-pagination
+            v-model:current-page="datasetPage"
+            :page-size="datasetPageSize"
+            :total="filteredDatasets.length"
+            layout="total, prev, pager, next"
+            background
+            small
+          />
         </div>
         <div class="dataset-cta">
           <div class="dataset-cta-copy">
@@ -726,9 +858,30 @@ onBeforeUnmount(() => {
             <span class="soft-label">基础权重目录</span>
             <p>导入的 .pt 文件会出现在提交训练页的模型下拉框中，和内置权重一样参与调度。</p>
           </div>
-          <span class="filter-count mono">{{ models.length }} 个文件</span>
+          <span class="filter-count mono">{{ filteredModels.length }} / {{ models.length }} 个文件</span>
         </div>
-        <el-table :data="models" row-key="name" class="asset-table">
+        <div class="artifact-toolbar">
+          <span class="soft-label">筛选</span>
+          <button
+            v-for="filter in modelSourceFilters"
+            :key="filter.key"
+            type="button"
+            class="filter-chip"
+            :class="{ active: modelSourceFilter === filter.key }"
+            @click="modelSourceFilter = filter.key"
+          >
+            {{ filter.label }}
+          </button>
+          <el-input
+            v-model="modelQuery"
+            class="artifact-search"
+            size="small"
+            clearable
+            :prefix-icon="Search"
+            placeholder="搜索权重文件名 / SHA"
+          />
+        </div>
+        <el-table :data="pagedModels" row-key="name" class="asset-table">
           <el-table-column label="权重文件" min-width="280">
             <template #default="{ row }">
               <div class="model-cell">
@@ -766,7 +919,7 @@ onBeforeUnmount(() => {
           </template>
         </el-table>
         <div class="dataset-mobile-list">
-          <article v-for="row in models" :key="row.name" class="dataset-mobile-card">
+          <article v-for="row in pagedModels" :key="row.name" class="dataset-mobile-card">
             <div class="mobile-card-head">
               <span class="dataset-icon"><el-icon><Cpu /></el-icon></span>
               <div><strong>{{ row.name }}</strong><span class="mono">{{ formatBytes(row.size_bytes) }} · .pt</span></div>
@@ -780,6 +933,16 @@ onBeforeUnmount(() => {
               <el-button size="small" text @click="useModel(row)">用于训练</el-button>
             </div>
           </article>
+        </div>
+        <div v-if="filteredModels.length" class="artifact-pager">
+          <el-pagination
+            v-model:current-page="modelPage"
+            :page-size="modelPageSize"
+            :total="filteredModels.length"
+            layout="total, prev, pager, next"
+            background
+            small
+          />
         </div>
       </template>
 
@@ -861,12 +1024,12 @@ onBeforeUnmount(() => {
             </div>
           </article>
         </div>
-        <div v-if="filteredArtifacts.length > artifactPageSize" class="artifact-pager">
+        <div v-if="filteredArtifacts.length" class="artifact-pager">
           <el-pagination
             v-model:current-page="artifactPage"
             :page-size="artifactPageSize"
             :total="filteredArtifacts.length"
-            layout="prev, pager, next"
+            layout="total, prev, pager, next"
             background
             small
           />
@@ -874,15 +1037,39 @@ onBeforeUnmount(() => {
       </template>
 
       <template v-else>
+        <div class="artifact-toolbar">
+          <span class="soft-label">筛选</span>
+          <button
+            v-for="filter in webhookStatusFilters"
+            :key="filter.key"
+            type="button"
+            class="filter-chip"
+            :class="{ active: webhookStatusFilter === filter.key }"
+            @click="webhookStatusFilter = filter.key"
+          >
+            {{ filter.label }}
+          </button>
+          <el-input
+            v-model="webhookQuery"
+            class="artifact-search"
+            size="small"
+            clearable
+            :prefix-icon="Search"
+            placeholder="搜索 Webhook 名称 / URL / 事件"
+          />
+          <span class="filter-count mono">{{ filteredWebhooks.length }} / {{ webhooks.length }}</span>
+        </div>
         <div class="webhook-layout">
           <div class="webhook-list">
-            <div v-if="webhooks.length === 0" class="webhook-empty">
+            <div v-if="pagedWebhooks.length === 0" class="webhook-empty">
               <span class="empty-icon"><el-icon><Connection /></el-icon></span>
-              <strong>还没有 Webhook</strong>
-              <span>注册一个接收端，订阅任务或流水线终态事件。先运行 <code class="code-inline">python scripts/webhook_receiver.py</code> 可得到本地接收器。</span>
-              <el-button type="primary" plain size="small" @click="openWebhookCreate">新建 Webhook</el-button>
+              <strong>{{ hasWebhookFilters && webhooks.length ? '没有匹配的 Webhook' : '还没有 Webhook' }}</strong>
+              <span v-if="filteredWebhooks.length === 0 && (webhookQuery || webhookStatusFilter !== 'all')">换个关键词或状态试试。</span>
+              <span v-else>注册一个接收端，订阅任务或流水线终态事件。先运行 <code class="code-inline">python scripts/webhook_receiver.py</code> 可得到本地接收器。</span>
+              <el-button v-if="filteredWebhooks.length === 0 && (webhookQuery || webhookStatusFilter !== 'all')" plain size="small" @click="webhookQuery = ''; webhookStatusFilter = 'all'">清除筛选</el-button>
+              <el-button v-else type="primary" plain size="small" @click="openWebhookCreate">新建 Webhook</el-button>
             </div>
-            <article v-for="endpoint in webhooks" :key="endpoint.id" class="webhook-card" :class="{ inactive: !endpoint.active }">
+            <article v-for="endpoint in pagedWebhooks" :key="endpoint.id" class="webhook-card" :class="{ inactive: !endpoint.active }">
               <div class="webhook-card-head">
                 <span class="webhook-dot" :class="{ active: endpoint.active }"></span>
                 <div>
@@ -937,6 +1124,16 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </section>
+        </div>
+        <div v-if="filteredWebhooks.length" class="artifact-pager">
+          <el-pagination
+            v-model:current-page="webhookPage"
+            :page-size="webhookPageSize"
+            :total="filteredWebhooks.length"
+            layout="total, prev, pager, next"
+            background
+            small
+          />
         </div>
       </template>
     </section>
