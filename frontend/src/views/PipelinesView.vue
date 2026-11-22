@@ -655,10 +655,10 @@ onBeforeUnmount(() => {
             <span>固定使用验证集生成整体指标、类别 AP、阈值配置和 CPU 推理延迟；不使用训练集评估，避免指标失真。</span>
           </div>
           <el-form-item label="评估数据">
-            <div class="fixed-policy">
-              <strong>验证集 val</strong>
-              <span>固定</span>
-            </div>
+            <el-select v-model="form.eval_split" class="full fixed-select" disabled>
+              <el-option label="验证集 val（固定）" value="val" />
+            </el-select>
+            <span class="form-hint">固定使用验证集，训练集不参与评估</span>
           </el-form-item>
           <el-form-item label="置信度阈值">
             <el-input-number
@@ -1399,6 +1399,15 @@ onBeforeUnmount(() => {
   background: var(--accent-soft);
   color: var(--accent);
   font-size: 9px;
+}
+
+.fixed-select :deep(.el-select__wrapper) {
+  background: var(--panel);
+  cursor: not-allowed;
+}
+
+.fixed-select :deep(.el-select__selected-item) {
+  color: var(--text-secondary);
 }
 
 .switch-field {
