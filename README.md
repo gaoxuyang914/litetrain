@@ -21,7 +21,6 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | README | 本文件：环境依赖、快速开始、架构图、HTTP 接口、测试与验收、已知边界 |
 | 可运行演示 | `scripts/setup.ps1` → `scripts/start_ray.ps1` → `scripts/start_backend.ps1` → `scripts/start_frontend.ps1`；黑盒验收脚本 `scripts/e2e_live.py` |
 | 规格与设计文档 | [docs/README.md](docs/README.md)：SDD 需求规格、技术实现设计、TDD 测试规格与验收矩阵 |
-| 答辩讲稿 | [答辩讲稿.md](答辩讲稿.md)：项目定位、8 分钟讲稿、演示脚本、技术亮点与 Q&A |
 | 演示截图 | [docs/screenshots](docs/screenshots/README.md)，32 张真实运行截图 |
 | CI | [.github/workflows/ci.yml](.github/workflows/ci.yml)，GitHub Actions 后端测试 + 平台/后台前端 typecheck/build |
 

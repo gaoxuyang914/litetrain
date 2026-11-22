@@ -17,7 +17,6 @@
 | --- | --- |
 | [P2 高阶能力设计与实现](p2-design.md) | 多节点模拟、三阶段流水线、数据集/产物、Webhook 的实现与生产化演进 |
 | [CPU 训练优化落地方案](CPU_OPTIMIZATION_LANDING_PLAN.md) | 数据准入、Benchmark、checkpoint/resume、manifest、实验对比的路线与验收 |
-| [答辩讲稿](../答辩讲稿.md) | 项目定位、架构取舍、8 分钟演示脚本、技术亮点与 Q&A |
 | [演示截图](screenshots/README.md) | 32 张真实运行截图说明 |
 
 ## 阅读顺序
