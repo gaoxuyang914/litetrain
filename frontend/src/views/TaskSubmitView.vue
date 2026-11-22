@@ -8,7 +8,6 @@ import {
   CopyDocument,
   Cpu,
   InfoFilled,
-  MagicStick,
   Promotion,
   SetUp,
   Timer,
@@ -346,28 +345,6 @@ async function submit() {
   }
 }
 
-function applyPreset(kind: 'quick' | 'standard') {
-  if (kind === 'quick') {
-    Object.assign(form, {
-      epochs: 1,
-      imgsz: 96,
-      batch_size: 4,
-      cpu_cores: Math.min(4, maxCpu.value),
-      max_runtime_seconds: Math.min(300, maxRuntime.value),
-      priority: 50,
-    })
-  } else {
-    Object.assign(form, {
-      epochs: 3,
-      imgsz: 160,
-      batch_size: 4,
-      cpu_cores: Math.min(6, maxCpu.value),
-      max_runtime_seconds: Math.min(1800, maxRuntime.value),
-      priority: 60,
-    })
-  }
-}
-
 async function copyCommand() {
   if (!preview.value) return
   const ok = await copyText(preview.value.command)
@@ -450,10 +427,6 @@ onBeforeUnmount(() => {
       <div class="page-heading">
         <span class="eyebrow">新建训练</span>
         <h1 class="page-title">提交训练任务</h1>
-      </div>
-      <div class="page-actions">
-        <el-button :icon="Timer" @click="applyPreset('quick')">快速试跑 · 1 轮</el-button>
-        <el-button :icon="MagicStick" @click="applyPreset('standard')">标准示例 · 3 轮</el-button>
       </div>
     </div>
 
@@ -1699,10 +1672,6 @@ onBeforeUnmount(() => {
 .tips-card p {
   font-size: 14px;
   line-height: 1.7;
-}
-
-.preset-note {
-  font-size: 12px;
 }
 
 @media (max-width: 1100px) {
