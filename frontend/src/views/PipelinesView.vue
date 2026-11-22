@@ -44,6 +44,7 @@ const statusCounts = ref({
 const loading = ref(true)
 const refreshing = ref(false)
 const error = ref<string | null>(null)
+const clock = ref(Date.now())
 const createOpen = ref(false)
 const creating = ref(false)
 const cancellingId = ref<string | null>(null)
@@ -53,6 +54,7 @@ const detailOpen = ref(false)
 const detailLoading = ref(false)
 const detail = ref<Pipeline | null>(null)
 let timer: number | undefined
+let clockTimer: number | undefined
 
 const form = reactive<PipelineCreatePayload>({
   name: '',
@@ -383,7 +385,15 @@ function stageHint(pipeline: Pipeline, key: string) {
   const stage = stageTask(pipeline, key)
   if (!stage) return '未创建'
   const meta = stageStatus(stage.status)
-  return stage.task ? `${meta.label} · ${formatDuration(stage.task.runtime_seconds)}` : meta.label
+  if (!stage.task) return meta.label
+  let runtime = stage.task.runtime_seconds
+  if (stage.status === 'running' && stage.started_at) {
+    const startedAt = Date.parse(stage.started_at)
+    if (Number.isFinite(startedAt)) {
+      runtime = Math.max(runtime, (clock.value - startedAt) / 1000)
+    }
+  }
+  return `${meta.label} · ${formatDuration(runtime)}`
 }
 
 function pipelineConfigSummary(pipeline: Pipeline) {
@@ -428,6 +438,9 @@ function stageClassRows(stage: PipelineStage): Array<Record<string, any>> {
 onMounted(async () => {
   await Promise.all([load(), loadOptions()])
   window.addEventListener('litetrain:settings-updated', refreshPolicyLimits)
+  clockTimer = window.setInterval(() => {
+    clock.value = Date.now()
+  }, 1000)
   timer = window.setInterval(() => {
     if (!document.hidden && (hasActive.value || pipelines.value.length === 0)) load(true)
   }, 3000)
@@ -435,6 +448,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (timer) window.clearInterval(timer)
+  if (clockTimer) window.clearInterval(clockTimer)
   window.removeEventListener('litetrain:settings-updated', refreshPolicyLimits)
 })
 </script>
