@@ -642,6 +642,75 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
+      <section class="panel node-resource-panel">
+        <div class="panel-head">
+          <div>
+            <h2>节点资源</h2>
+            <p class="panel-caption">按节点查看 CPU 分配、使用率、主机负载与运行任务</p>
+          </div>
+          <span class="tag-soft"><span class="dot"></span>{{ onlineNodes.length }} 在线</span>
+        </div>
+        <div class="node-table-wrap">
+          <el-table :data="overview.nodes" row-key="id" class="node-resource-table">
+            <el-table-column label="节点" min-width="190">
+              <template #default="{ row }">
+                <div class="node-table-name">
+                  <span class="node-table-glyph"><el-icon><Monitor /></el-icon></span>
+                  <div>
+                    <strong>{{ row.name }}</strong>
+                    <span class="mono">{{ row.hostname }}</span>
+                  </div>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="92">
+              <template #default="{ row }">
+                <span class="node-state" :class="row.status">
+                  <i></i>{{ row.status === 'online' ? '在线' : '离线' }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="CPU 分配" width="130">
+              <template #default="{ row }">
+                <span class="mono node-cpu-label">{{ row.allocated_cpus }} / {{ row.total_cpus }} 核</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="使用率" min-width="180">
+              <template #default="{ row }">
+                <div class="node-usage">
+                  <div class="node-usage-track">
+                    <span :style="{ width: `${Math.min(100, row.cpu_utilization_percent)}%` }"></span>
+                  </div>
+                  <b>{{ formatPercent(row.cpu_utilization_percent, 0) }}</b>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="主机负载" width="110">
+              <template #default="{ row }">
+                <span class="mono node-host">{{ formatPercent(row.host_percent, 0) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="运行任务" width="100" align="center">
+              <template #default="{ row }">
+                <span class="task-count-pill">{{ row.active_tasks.length }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="88" align="right">
+              <template #default="{ row }">
+                <el-button
+                  text
+                  size="small"
+                  :disabled="nodeActionBusy === row.id"
+                  @click="toggleNode(row)"
+                >
+                  {{ row.status === 'online' ? '下线' : '上线' }}
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </section>
+
       <section class="panel recent-panel">
         <div class="panel-head">
           <div>
@@ -3824,3 +3893,139 @@ html.dark .accent-card {
   }
 }
 </style>
+
+<style scoped>
+/* Node resource table */
+.node-table-wrap {
+  overflow-x: auto;
+}
+
+.node-resource-table {
+  min-width: 760px;
+}
+
+.node-resource-table :deep(.el-table__header-wrapper th.el-table__cell) {
+  padding: 10px 0;
+  background: var(--panel-soft);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.node-resource-table :deep(.el-table__body td.el-table__cell) {
+  padding: 11px 0;
+}
+
+.node-resource-table :deep(.el-table__cell .cell) {
+  padding: 0 14px;
+}
+
+.node-table-name {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.node-table-glyph {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border: 1px solid var(--accent-line);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.node-table-name > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.node-table-name strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.node-table-name .mono {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--success);
+  font-size: 12px;
+}
+
+.node-state i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.node-state.offline {
+  color: var(--text-muted);
+}
+
+.node-cpu-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.node-usage {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.node-usage-track {
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--panel-soft);
+}
+
+.node-usage-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.node-usage b {
+  flex: none;
+  width: 38px;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: right;
+}
+
+.node-host {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .node-resource-panel .panel-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+}
+</style>
+
