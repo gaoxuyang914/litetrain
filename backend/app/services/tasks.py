@@ -448,11 +448,17 @@ class TaskService:
 
     def _to_schema(self, task: Task, queue_position: int | None = None) -> TaskOut:
         serialized = TaskOut.model_validate(task)
+        try:
+            task_config = json.loads(task.config_json or "{}")
+            task_kind = str(task_config.get("stage") or "train")
+        except (json.JSONDecodeError, TypeError):
+            task_kind = "train"
         return serialized.model_copy(
             update={
                 "runtime_seconds": runtime_seconds(task),
                 "queue_position": queue_position,
                 "log_size_bytes": self.log_store.size(task.id),
+                "kind": task_kind,
             }
         )
 

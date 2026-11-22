@@ -24,6 +24,8 @@ measure 4.5:1–19.0:1.
 | `pipelines.png` | Serial preprocess → train → evaluate pipelines, both completed |
 | `pipeline-v2.png` | Pipeline v2 stage report with dedupe/split and evaluation metrics |
 | `pipeline-create-v2.png` | Preprocess and evaluation policy fields in the pipeline form |
+| `preprocess-stage.png` | Preprocess task detail with data report, not training copy |
+| `evaluate-stage.png` | Evaluate task detail with mAP/latency report, not training copy |
 | `assets.png` | Dataset registry with quality status and a warning dataset |
 | `artifacts.png` | Model artifact registry with kind filter, SHA-256 and download |
 | `model-import.png` | Base `.pt` weight import and train-link action |

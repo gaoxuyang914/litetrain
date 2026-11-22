@@ -30,6 +30,7 @@ export interface Task {
   owner: string
   status: TaskStatus
   priority: number
+  kind: 'train' | 'preprocess' | 'evaluate' | string
   model: string
   dataset: string
   dataset_id: string | null

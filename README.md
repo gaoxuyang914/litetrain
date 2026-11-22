@@ -21,7 +21,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 | README | 本文件：环境依赖、快速开始、架构图、HTTP 接口、测试与验收、已知边界 |
 | 可运行演示 | `scripts/setup.ps1` → `scripts/start_ray.ps1` → `scripts/start_backend.ps1` → `scripts/start_frontend.ps1`；黑盒验收脚本 `scripts/e2e_live.py` |
 | 规格与设计文档 | [docs/README.md](docs/README.md)：SDD 需求规格、技术实现设计、TDD 测试规格与验收矩阵 |
-| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，28 张真实运行截图 |
+| 演示截图 | [docs/screenshots](docs/screenshots/README.md)，30 张真实运行截图 |
 | CI | [.github/workflows/ci.yml](.github/workflows/ci.yml)，GitHub Actions 后端测试 + 平台/后台前端 typecheck/build |
 
 ---
@@ -159,6 +159,14 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 ![流水线预处理/评估配置](docs/screenshots/pipeline-create-v2.png)
 
+预处理任务详情：
+
+![预处理任务详情](docs/screenshots/preprocess-stage.png)
+
+评估任务详情：
+
+![评估任务详情](docs/screenshots/evaluate-stage.png)
+
 ### 多节点拓扑模拟
 
 ![多节点模拟](docs/screenshots/topology.png)
@@ -167,7 +175,7 @@ LiteTrain 是一个前后端分离的训练平台示例：在普通笔记本上�
 
 ![Webhook](docs/screenshots/webhooks.png)
 
-更多截图：登录 [login.png](docs/screenshots/login.png)、后台管理 [admin.png](docs/screenshots/admin.png)、任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、模型权重导入 [model-import.png](docs/screenshots/model-import.png)、超限提醒 [task-limits.png](docs/screenshots/task-limits.png)、流水线阶段报告 [pipeline-v2.png](docs/screenshots/pipeline-v2.png)、流水线配置 [pipeline-create-v2.png](docs/screenshots/pipeline-create-v2.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、原任务重跑历史 [rerun-inplace.png](docs/screenshots/rerun-inplace.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
+更多截图：登录 [login.png](docs/screenshots/login.png)、后台管理 [admin.png](docs/screenshots/admin.png)、任务列表 [tasks.png](docs/screenshots/tasks.png)、提交表单 [submit.png](docs/screenshots/submit.png)、模型权重导入 [model-import.png](docs/screenshots/model-import.png)、超限提醒 [task-limits.png](docs/screenshots/task-limits.png)、流水线阶段报告 [pipeline-v2.png](docs/screenshots/pipeline-v2.png)、流水线配置 [pipeline-create-v2.png](docs/screenshots/pipeline-create-v2.png)、预处理详情 [preprocess-stage.png](docs/screenshots/preprocess-stage.png)、评估详情 [evaluate-stage.png](docs/screenshots/evaluate-stage.png)、排队详情 [queue.png](docs/screenshots/queue.png)、深色模式 [dark.png](docs/screenshots/dark.png)、收起导航 [sidebar-collapsed.png](docs/screenshots/sidebar-collapsed.png)、质量报告 [quality-report.png](docs/screenshots/quality-report.png)、运行设置 [settings.png](docs/screenshots/settings.png)、被抢占任务 [preemption.png](docs/screenshots/preemption.png)、原任务重跑历史 [rerun-inplace.png](docs/screenshots/rerun-inplace.png)、CPU Benchmark [benchmark.png](docs/screenshots/benchmark.png)、实验对比 [compare.png](docs/screenshots/compare.png)、状态分布 [distribution.png](docs/screenshots/distribution.png)、重跑 [rerun.png](docs/screenshots/rerun.png)。
 
 > 截图由本机真实运行中的 `npm run dev` + FastAPI + Ray 页面生成，使用 Playwright 驱动 Edge，1440×1000 视口。当前界面为 **v2.5 Ultralytics-style workspace**：白色侧栏与任务搜索、蓝色品牌、细边框浅色卡片、黑色主按钮、浅色集群拓扑、数据质量准入和运行清单；字号、对比度、焦点和 reduced-motion 均按 `deepseek-frontend-design` 技能自检。说明见 [docs/screenshots/README.md](docs/screenshots/README.md)。
 

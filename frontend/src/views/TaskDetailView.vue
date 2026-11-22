@@ -23,6 +23,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, logDownloadUrl } from '@/api/client'
 import LogTerminal from '@/components/LogTerminal.vue'
 import MetricsPanel from '@/components/MetricsPanel.vue'
+import StageMetricsPanel from '@/components/StageMetricsPanel.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useNotifications } from '@/composables/useNotifications'
 import { useAuth } from '@/composables/useAuth'
@@ -75,7 +76,76 @@ let requestSeq = 0
 
 const taskId = computed(() => String(route.params.id || ''))
 const terminal = computed(() => (task.value ? isTerminal(task.value.status) : false))
-const statusLabel = computed(() => (task.value ? statusMeta[task.value.status].label : ''))
+const taskKind = computed(() => task.value?.kind ?? 'train')
+const isTrainTask = computed(() => taskKind.value === 'train')
+const isPreprocessTask = computed(() => taskKind.value === 'preprocess')
+const kindLabels: Record<string, string> = {
+  preprocess: '预处理',
+  train: '训练',
+  evaluate: '评估',
+}
+const kindLabel = computed(() => kindLabels[taskKind.value] ?? '训练')
+const statusLabel = computed(() => {
+  if (!task.value) return ''
+  return stageStatusLabel(taskKind.value, task.value.status)
+})
+
+function stageStatusLabel(kind: string, status: string): string {
+  const labels: Record<string, Record<string, string>> = {
+    preprocess: {
+      pending: '等待预处理',
+      running: '预处理中',
+      succeeded: '预处理完成',
+      failed: '预处理失败',
+      cancelled: '预处理已取消',
+    },
+    evaluate: {
+      pending: '等待评估',
+      running: '评估中',
+      succeeded: '评估完成',
+      failed: '评估失败',
+      cancelled: '评估已取消',
+    },
+    train: {
+      pending: '等待训练',
+      running: '训练中',
+      succeeded: '训练成功',
+      failed: '训练失败',
+      cancelled: '训练已取消',
+    },
+  }
+  return labels[kind]?.[status] ?? (statusMeta[status as keyof typeof statusMeta]?.label ?? status)
+}
+
+function attemptStatusLabel(status: string): string {
+  return stageStatusLabel(taskKind.value, status)
+}
+const logTitle = computed(() => `${kindLabel.value}日志`)
+const logCaption = computed(() => {
+  if (isPreprocessTask.value) return '数据扫描、去重、标签校验与切分详情'
+  if (taskKind.value === 'evaluate') return '验证集推理、指标与类别 AP 日志'
+  return '增量读取日志，实时推送，长列表虚拟滚动'
+})
+const metricsTitle = computed(() => (isTrainTask.value ? '训练指标' : `${kindLabel.value}指标`))
+const metricsCaption = computed(() => {
+  if (isPreprocessTask.value) return '保留、去重、训练/验证集与类别统计'
+  if (taskKind.value === 'evaluate') return 'mAP、精确率、召回率、延迟与 FPS'
+  return '损失、mAP、精确率与召回率'
+})
+const configCaption = computed(() =>
+  isTrainTask.value
+    ? '任务参数会原样传递给训练进程与 Ultralytics'
+    : `${kindLabel.value}阶段由流水线编排器生成，参数来自流水线策略`,
+)
+const commandLabel = computed(() =>
+  isTrainTask.value ? '训练命令' : isPreprocessTask.value ? '预处理命令' : '评估命令',
+)
+const heartbeatHint = computed(() =>
+  task.value?.status === 'running'
+    ? '每 4 秒上报 worker 资源'
+    : `${kindLabel.value}进程已结束`,
+)
+const artifactLabel = computed(() => (isTrainTask.value ? '模型产物' : '阶段产物'))
 const manualRerunCount = computed(() =>
   task.value ? Math.max(0, task.value.attempt - task.value.retry_count - 1) : 0,
 )
@@ -257,24 +327,25 @@ const summaryStats = computed(() => {
 })
 
 function statusHint(taskValue: Task): string {
+  const noun = kindLabels[taskValue.kind] ?? '训练'
   if (taskValue.status === 'pending') {
     return taskValue.queue_position
       ? `正在队列中等待，排队位置 #${taskValue.queue_position}`
-      : '正在等待调度器分配 CPU 资源'
+      : `正在等待调度器分配 CPU 资源（${noun}）`
   }
   if (taskValue.status === 'running') {
-    return `训练进程正在 CPU 上运行，最近心跳 ${heartbeatLabel.value}`
+    return `${noun}进程正在 CPU 上运行，最近心跳 ${heartbeatLabel.value}`
   }
   if (taskValue.status === 'succeeded') {
-    return `训练成功完成，总耗时 ${formatDuration(taskValue.runtime_seconds)}`
+    return `${noun}完成，总耗时 ${formatDuration(taskValue.runtime_seconds)}`
   }
   if (taskValue.status === 'failed') {
-    return taskValue.failure_reason || '训练失败'
+    return taskValue.failure_reason || `${noun}失败`
   }
   if (taskValue.failure_reason === 'preempted') {
     return '任务被更高优先级任务抢占，CPU 已释放，并按最近 checkpoint 创建恢复任务'
   }
-  return '任务已取消，CPU 资源已释放'
+  return `${noun}已取消，CPU 资源已释放`
 }
 
 function eventTone(level: string, eventType: string): string {
@@ -484,7 +555,7 @@ onBeforeUnmount(() => stopPolling())
         </button>
         <div class="detail-title-row">
           <span class="eyebrow">任务运行详情</span>
-          <StatusBadge v-if="task" :status="task.status" />
+          <StatusBadge v-if="task" :status="task.status" :label="statusLabel" />
         </div>
         <h1 class="page-title">{{ task?.name ?? '任务详情' }}</h1>
         <div v-if="task" class="detail-subline">
@@ -504,7 +575,7 @@ onBeforeUnmount(() => stopPolling())
           @click="loadAll(false)"
         />
         <el-button :icon="Download" @click="downloadLog">下载日志</el-button>
-        <el-button v-if="task" :icon="Box" @click="openArtifacts">模型产物</el-button>
+        <el-button v-if="task && !isPreprocessTask" :icon="Box" @click="openArtifacts">{{ artifactLabel }}</el-button>
         <el-button
           v-if="task && terminal && canOperate"
           :icon="RefreshRight"
@@ -514,7 +585,7 @@ onBeforeUnmount(() => stopPolling())
           重跑
         </el-button>
         <el-button
-          v-if="task && ['failed', 'cancelled'].includes(task.status) && canOperate"
+          v-if="task && isTrainTask && ['failed', 'cancelled'].includes(task.status) && canOperate"
           :icon="Refresh"
           @click="openResumeDialog()"
         >
@@ -603,7 +674,7 @@ onBeforeUnmount(() => stopPolling())
                 <strong class="mono">{{ heartbeatLabel }}</strong>
               </div>
               <span class="hero-stat-hint">
-                {{ task.status === 'running' ? '每 4 秒上报 worker 资源' : '训练进程已结束' }}
+                {{ heartbeatHint }}
               </span>
             </div>
           </div>
@@ -623,8 +694,8 @@ onBeforeUnmount(() => stopPolling())
           <section id="task-logs" ref="logsSection" class="panel logs-panel">
             <div class="panel-head">
               <div>
-                <h2>训练日志</h2>
-                <p class="panel-caption">增量读取日志，实时推送，长列表虚拟滚动</p>
+                <h2>{{ logTitle }}</h2>
+                <p class="panel-caption">{{ logCaption }}</p>
               </div>
               <div class="log-head-meta">
                 <span class="tag-soft" :class="{ accent: isRunning }">
@@ -643,7 +714,7 @@ onBeforeUnmount(() => stopPolling())
             <div class="panel-head">
               <div>
                 <h2>执行配置</h2>
-                <p class="panel-caption">任务参数会原样传递给训练进程与 Ultralytics</p>
+                <p class="panel-caption">{{ configCaption }}</p>
               </div>
               <el-button text :icon="CopyDocument" @click="copy(task.command, '执行命令')">
                 复制命令
@@ -651,7 +722,7 @@ onBeforeUnmount(() => stopPolling())
             </div>
             <div class="config-body">
               <div class="config-grid">
-                <div class="config-item">
+                <div v-if="!isPreprocessTask" class="config-item">
                   <span>模型</span>
                   <strong class="mono">{{ task.model }}</strong>
                 </div>
@@ -659,19 +730,19 @@ onBeforeUnmount(() => stopPolling())
                   <span>数据集</span>
                   <strong class="mono">{{ task.dataset }}</strong>
                 </div>
-                <div class="config-item">
+                <div v-if="isTrainTask" class="config-item">
                   <span>训练轮数</span>
                   <strong class="mono">{{ task.epochs }}</strong>
                 </div>
-                <div class="config-item">
+                <div v-if="!isPreprocessTask" class="config-item">
                   <span>图像尺寸</span>
                   <strong class="mono">{{ task.imgsz }} × {{ task.imgsz }}</strong>
                 </div>
-                <div class="config-item">
+                <div v-if="!isPreprocessTask" class="config-item">
                   <span>批大小</span>
                   <strong class="mono">{{ task.batch_size }}</strong>
                 </div>
-                <div class="config-item">
+                <div v-if="!isPreprocessTask" class="config-item">
                   <span>数据线程</span>
                   <strong class="mono">{{ task.workers }}</strong>
                 </div>
@@ -686,7 +757,7 @@ onBeforeUnmount(() => stopPolling())
               </div>
               <div class="command-full">
                 <div class="command-label">
-                  <span class="soft-label">训练命令</span>
+                  <span class="soft-label">{{ commandLabel }}</span>
                   <span class="mono">进程 {{ task.pid ?? '—' }}</span>
                 </div>
                 <code>{{ task.command }}</code>
@@ -703,8 +774,8 @@ onBeforeUnmount(() => stopPolling())
           <section class="panel metrics-card">
             <div class="panel-head">
               <div>
-                <h2>训练指标</h2>
-                <p class="panel-caption">损失、mAP、精确率与召回率</p>
+                <h2>{{ metricsTitle }}</h2>
+                <p class="panel-caption">{{ metricsCaption }}</p>
               </div>
               <span class="tag-soft" :class="{ accent: isRunning }">
                 {{ isRunning ? '更新中' : '快照' }}
@@ -718,7 +789,8 @@ onBeforeUnmount(() => stopPolling())
                 :closable="false"
                 show-icon
               />
-              <MetricsPanel :task="task" :metrics="metrics" :loading="refreshing" />
+              <MetricsPanel v-if="isTrainTask" :task="task" :metrics="metrics" :loading="refreshing" />
+              <StageMetricsPanel v-else :task="task" :metrics="metrics" />
             </div>
           </section>
 
@@ -753,7 +825,7 @@ onBeforeUnmount(() => stopPolling())
             </div>
           </section>
 
-          <section class="panel side-info-card" v-if="checkpoints.length">
+          <section class="panel side-info-card" v-if="isTrainTask && checkpoints.length">
             <div class="panel-head">
               <h2>Checkpoint</h2>
               <span class="panel-caption">{{ checkpoints.length }} 个</span>
@@ -861,7 +933,7 @@ onBeforeUnmount(() => stopPolling())
             <div class="attempt-index">
               <strong>第 {{ attempt.attempt }} 次</strong>
             </div>
-            <span class="attempt-state">{{ statusMeta[attempt.status].label }}</span>
+            <span class="attempt-state">{{ attemptStatusLabel(attempt.status) }}</span>
             <span class="attempt-time">{{ formatDate(attempt.started_at) }}</span>
             <span class="attempt-duration">{{ formatDuration(attempt.runtime_seconds) }}</span>
             <span class="attempt-cpu mono">{{ attempt.cpu_cores }} 核</span>

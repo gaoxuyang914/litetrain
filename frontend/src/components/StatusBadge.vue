@@ -8,6 +8,7 @@ const props = withDefaults(
   defineProps<{
     status: TaskStatus
     compact?: boolean
+    label?: string
   }>(),
   { compact: false },
 )
@@ -18,7 +19,7 @@ const meta = computed(() => statusMeta[props.status])
 <template>
   <span class="status-badge" :class="[meta.tone, { compact }]">
     <span class="status-dot" :class="{ live: status === 'running' }"></span>
-    {{ compact ? meta.short : meta.label }}
+    {{ label ?? (compact ? meta.short : meta.label) }}
   </span>
 </template>
 

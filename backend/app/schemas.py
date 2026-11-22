@@ -91,6 +91,7 @@ class TaskOut(BaseModel):
     owner: str
     status: TaskStatus
     priority: int
+    kind: str = "train"
 
     model: str
     dataset: str

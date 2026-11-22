@@ -69,6 +69,26 @@ const hasActiveTasks = computed(() =>
   tasks.value.some((task) => !isTerminal(task.status)),
 )
 
+function taskStatusLabel(task: any): string {
+  const labels: Record<string, Record<string, string>> = {
+    preprocess: {
+      pending: '等待预处理',
+      running: '预处理中',
+      succeeded: '预处理完成',
+      failed: '预处理失败',
+      cancelled: '预处理已取消',
+    },
+    evaluate: {
+      pending: '等待评估',
+      running: '评估中',
+      succeeded: '评估完成',
+      failed: '评估失败',
+      cancelled: '评估已取消',
+    },
+  }
+  return labels[task.kind ?? 'train']?.[task.status] ?? statusMeta[task.status as TaskStatus].label
+}
+
 const pageIds = computed(() => tasks.value.map((task) => task.id))
 const allPageSelected = computed(
   () => pageIds.value.length > 0 && pageIds.value.every((id) => selectedIds.value.includes(id)),
@@ -470,7 +490,7 @@ onBeforeUnmount(() => {
 
           <el-table-column label="状态" width="112">
             <template #default="{ row }">
-              <StatusBadge :status="row.status" />
+              <StatusBadge :status="row.status" :label="taskStatusLabel(row)" />
             </template>
           </el-table-column>
 
@@ -563,7 +583,7 @@ onBeforeUnmount(() => {
                 <strong>{{ row.name }}</strong>
                 <span class="mono">{{ row.id }}</span>
               </div>
-              <StatusBadge :status="row.status" />
+              <StatusBadge :status="row.status" :label="taskStatusLabel(row)" />
             </div>
             <div class="task-mobile-meta">
               <span class="mono">{{ row.epochs }} 轮 · {{ row.imgsz }} px · 批 {{ row.batch_size }}</span>
